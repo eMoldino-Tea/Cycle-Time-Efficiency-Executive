@@ -175,6 +175,7 @@ def kpi_card(name, summary, prev_summary):
             delta_html = '<span class="text-neutral">No change vs previous period</span>'
 
     risk_color = RED if (pct or 0) > 0 else GREEN
+    noun = name.replace(" Health", "") + "s"  # "Suppliers" / "Tooling Types" / "Parts"
     st.markdown(f"""
     <div class="kpi">
       <div class="kpi-top">
@@ -183,7 +184,7 @@ def kpi_card(name, summary, prev_summary):
       </div>
       <div class="kpi-big" style="color:{risk_color};">{at_risk:,}</div>
       <div class="kpi-unit">at risk &nbsp;&middot;&nbsp; {pct_txt} of {total:,} total</div>
-      <div class="kpi-row"><span class="l">Total {name.split()[0]}s</span><span class="v">{total:,}</span></div>
+      <div class="kpi-row"><span class="l">Total {noun}</span><span class="v">{total:,}</span></div>
       <div class="kpi-row"><span class="l">At Risk</span><span class="v">{at_risk:,}</span></div>
       <div class="kpi-row"><span class="l">% At Risk</span><span class="v">{pct_txt}</span></div>
       <div class="kpi-delta">{delta_html}</div>
