@@ -64,7 +64,7 @@ def load_base_data():
 
     # ~26 weeks so trends and previous-period comparisons have data on both sides
     end_date = datetime.today()
-    n_weeks = 26
+    n_weeks = 52
     week_starts = [end_date - timedelta(days=7 * (n_weeks - 1 - w)) for w in range(n_weeks)]
     week_macro_noise = np.random.normal(0, 2.5, n_weeks)
 

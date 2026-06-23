@@ -159,6 +159,8 @@ def apply_master_filters(df):
 
 current_df = apply_master_filters(current_raw)
 previous_df = apply_master_filters(previous_raw)
+# Full historical range for Trend Analysis (ignores the time-range filter)
+trend_df = apply_master_filters(core.apply_financials(base_df, labor_rate, machine_rate))
 
 period_label = f"{pd.to_datetime(start_date).date()} to {pd.to_datetime(end_date).date()}"
 
@@ -361,9 +363,14 @@ with level2:
         ("Parts", "Part", "#a78bfa"),
     ]
 
-    _d = current_df.copy()
+    _d = trend_df.copy()
     if not _d.empty:
         _d['bucket'] = _d['Date'].dt.to_period(trend_freq).dt.start_time
+
+    def _bucket_label(bucket_ts, freq):
+        if freq == 'M':
+            return bucket_ts.strftime('%b %Y')
+        return f"Q{(bucket_ts.month - 1) // 3 + 1} {bucket_ts.year}"
 
     trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
@@ -384,21 +391,26 @@ with level2:
                                     .reset_index()
                                     .dropna(subset=['CTE'])
                                     .sort_values('bucket'))
+                cte_trend['label'] = cte_trend['bucket'].apply(
+                    lambda x: _bucket_label(x, trend_freq)
+                )
             else:
-                cte_trend = pd.DataFrame(columns=['bucket', 'CTE'])
+                cte_trend = pd.DataFrame(columns=['bucket', 'CTE', 'label'])
 
             # --- CTE Trend Line ---
             if not cte_trend.empty:
                 fig_line = go.Figure()
                 fig_line.add_trace(go.Scatter(
-                    x=cte_trend['bucket'], y=cte_trend['CTE'],
+                    x=cte_trend['label'], y=cte_trend['CTE'],
                     mode="lines+markers", name="Cycle Time Efficiency",
                     line=dict(color=tab_color, width=2.5), marker=dict(size=6),
+                    hovertemplate="<b>%{x}</b><br>CTE: %{y:.1f}%<extra></extra>",
                 ))
                 fig_line.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                     height=380, margin=dict(l=10, r=20, t=20, b=10),
-                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
+                    xaxis=dict(type='category', showgrid=False,
+                               tickfont=dict(color="#94a3b8")),
                     yaxis=dict(showgrid=True, gridcolor="#334155",
                                title="Cycle Time Efficiency (%)",
                                tickfont=dict(color="#94a3b8")),
@@ -410,7 +422,7 @@ with level2:
                 st.info("Not enough dated data in this range to plot a trend.")
 
             # --- At-Risk Table ---
-            t = core.risk_trend(current_df, dim, trend_freq)
+            t = core.risk_trend(trend_df, dim, trend_freq)
             if not t.empty:
                 t = t.copy().reset_index(drop=True)
                 t['prev_at_risk'] = t['at_risk'].shift(1)
@@ -432,13 +444,7 @@ with level2:
                     return '→ 0.0%'
 
                 t['% Change vs Previous Period'] = t.apply(_fmt_change, axis=1)
-
-                if trend_freq == 'M':
-                    t['bucket'] = t['bucket'].dt.strftime('%b %Y')
-                else:
-                    t['bucket'] = t['bucket'].apply(
-                        lambda x: f"{x.year} Q{(x.month - 1) // 3 + 1}"
-                    )
+                t['bucket'] = t['bucket'].apply(lambda x: _bucket_label(x, trend_freq))
 
                 display_t = t[['bucket', 'at_risk', 'total', '% Change vs Previous Period']].copy()
                 display_t.columns = [
