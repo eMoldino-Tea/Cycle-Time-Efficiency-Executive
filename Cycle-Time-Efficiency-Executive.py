@@ -128,17 +128,42 @@ FREQ = {"Daily": "D", "Weekly": "W", "Monthly": "M"}[gran_label]
 def date_slice(df, s, e):
     return df[(df['Date'] >= s) & (df['Date'] <= e)].copy()
 
-current_df = core.apply_financials(date_slice(base_df, start_date, end_date), labor_rate, machine_rate)
+current_raw = core.apply_financials(date_slice(base_df, start_date, end_date), labor_rate, machine_rate)
 
 duration = end_date - start_date
 prev_end = start_date
 prev_start = start_date - duration
-previous_df = core.apply_financials(date_slice(base_df, prev_start, prev_end), labor_rate, machine_rate)
+previous_raw = core.apply_financials(date_slice(base_df, prev_start, prev_end), labor_rate, machine_rate)
+
+# ---- Master Filter (global, cascading) -- carried over from the original app
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Master Filter")
+MASTER_FILTER_COLS = [
+    "OEM Business Division", "Region", "Supplier", "Toolmaker", "Plant",
+    "Tooling Type", "Product", "Part", "Tooling",
+]
+_casc = current_raw.copy()
+master_selections = {}
+for _col in MASTER_FILTER_COLS:
+    _opts = sorted(_casc[_col].dropna().unique().tolist())
+    _sel = st.sidebar.multiselect(_col, options=_opts, key=f"mf_{_col}")
+    master_selections[_col] = _sel
+    if _sel:
+        _casc = _casc[_casc[_col].isin(_sel)]
+
+def apply_master_filters(df):
+    for _c, _v in master_selections.items():
+        if _v:
+            df = df[df[_c].isin(_v)]
+    return df
+
+current_df = apply_master_filters(current_raw)
+previous_df = apply_master_filters(previous_raw)
 
 period_label = f"{pd.to_datetime(start_date).date()} to {pd.to_datetime(end_date).date()}"
 
 if current_df.empty:
-    st.warning("No data available for the selected time range.")
+    st.warning("No data available for the selected time range / filters.")
     st.stop()
 
 # ==========================================================================
@@ -270,9 +295,25 @@ level1, level2, level3 = st.tabs([
 # LEVEL 1 — EXECUTIVE OVERVIEW
 # ==========================================================================
 with level1:
+    @st.dialog("Detailed Table", width="large")
+    def all_entities_dialog(dim):
+        st.markdown(f"### All {dim}s — Detailed Table")
+        rank = core.generate_ranking_table_data(current_df, dim)
+        if rank.empty:
+            st.info("No data available.")
+            return
+        top = st.columns([3, 1])
+        with top[0]:
+            rv = search_box(rank, f"dlg_{dim}")
+        with top[1]:
+            st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+            download_csv(rv, "Export CSV", f"all_{dim}.csv", f"dlg_{dim}")
+        st.dataframe(style_table(rv, RANK_FMT), use_container_width=True, hide_index=True)
+
     dims = [("Supplier", "Supplier"),
             ("Tooling Type", "Tooling Type"),
             ("Part", "Part")]
+    plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
 
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
@@ -280,10 +321,14 @@ with level1:
             kpi_card(title,
                      core.risk_summary(current_df, dim),
                      core.risk_summary(previous_df, dim))
+            if st.button(f"View all {plural[dim]}  →", key=f"cardbtn_{dim}",
+                         use_container_width=True):
+                all_entities_dialog(dim)
 
     st.markdown(
-        '<div class="legend-note">Delta compares the at-risk rate against the equally-sized '
-        'period immediately before the selected range.</div>',
+        '<div class="legend-note">Click a card to open its detailed table. '
+        'Delta compares the at-risk rate against the equally-sized period '
+        'immediately before the selected range.</div>',
         unsafe_allow_html=True,
     )
 
@@ -360,38 +405,14 @@ with level2:
 # ==========================================================================
 with level3:
     st.markdown('<div class="section-title">Granular Analysis</div>', unsafe_allow_html=True)
+    st.markdown(
+        "<div class='legend-note'>Use the <b>Master Filter</b> in the sidebar "
+        "(OEM Business Division, Region, Supplier, Toolmaker, Plant, Tooling Type, "
+        "Product, Part, Tooling) to scope every tab, including these drill-downs.</div>",
+        unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with st.expander("Cascading Filters", expanded=True):
-        d = current_df.copy()
-        r1 = st.columns(4)
-        r2 = st.columns(4)
-
-        def casc(container, label, colname, src):
-            opts = sorted(src[colname].dropna().unique().tolist())
-            sel = container.multiselect(label, options=opts, key=f"f_{colname}")
-            return sel
-
-        sel_region = casc(r1[0], "Region", "Region", d)
-        d = d[d['Region'].isin(sel_region)] if sel_region else d
-        sel_oem = casc(r1[1], "OEM Business Division", "OEM Business Division", d)
-        d = d[d['OEM Business Division'].isin(sel_oem)] if sel_oem else d
-        sel_sup = casc(r1[2], "Supplier", "Supplier", d)
-        d = d[d['Supplier'].isin(sel_sup)] if sel_sup else d
-        sel_plant = casc(r1[3], "Plant", "Plant", d)
-        d = d[d['Plant'].isin(sel_plant)] if sel_plant else d
-
-        sel_tt = casc(r2[0], "Tooling Type", "Tooling Type", d)
-        d = d[d['Tooling Type'].isin(sel_tt)] if sel_tt else d
-        sel_part = casc(r2[1], "Part", "Part", d)
-        d = d[d['Part'].isin(sel_part)] if sel_part else d
-        sel_tool = casc(r2[2], "Tooling", "Tooling", d)
-        d = d[d['Tooling'].isin(sel_tool)] if sel_tool else d
-        r2[3].markdown(
-            "<div class='legend-note'>Date range is set in the sidebar. "
-            "Region is derived from Plant for this demo dataset.</div>",
-            unsafe_allow_html=True)
-
-    gran_df = d
+    gran_df = current_df
     if gran_df.empty:
         st.warning("No data for the selected filters.")
         st.stop()

@@ -119,6 +119,16 @@ def load_base_data():
     }
     oem_pool = ['NA Auto', 'EU Consumer', 'APAC Enterprise', 'LATAM Industrial']
 
+    # Localized "recent change": a baseline bump (all weeks) plus a step that
+    # only kicks in from STEP_WEEK onward. STEP_WEEK is placed at the boundary
+    # between the previous (weeks 17-21) and current (weeks 21-25) comparison
+    # windows, so the previous window stays on one side of the At-Risk line and
+    # the current window on the other. This gives the Executive Summary a real
+    # period-over-period delta for Tooling Type and Part (not just Supplier).
+    STEP_WEEK = 22
+    type_dyn = {'Blow Molding': {'bump': 4.0, 'step': -15.0}}   # good -> at risk
+    part_dyn = {'Part-025': {'bump': 4.0, 'step': -15.0}}       # good -> at risk
+
     records = []
     tool_counter = 1
     for sup, (start_lvl, slope) in suppliers.items():
@@ -134,11 +144,18 @@ def load_base_data():
             oem = np.random.choice(oem_pool)
             toolmaker = np.random.choice(['TM-A', 'TM-B', 'TM-C', 'TM-D'])
             tool_off = np.random.uniform(-2, 2)
+            dyn_t = type_dyn.get(ttype, None)
+            dyn_p = part_dyn.get(part, None)
             for w in range(n_weeks):
                 wk = week_starts[w]
+                dyn_adj = 0.0
+                if dyn_t:
+                    dyn_adj += dyn_t['bump'] + (dyn_t['step'] if w >= STEP_WEEK else 0.0)
+                if dyn_p:
+                    dyn_adj += dyn_p['bump'] + (dyn_p['step'] if w >= STEP_WEEK else 0.0)
                 for _ in range(np.random.randint(1, 4)):
                     eff = (start_lvl + slope * w + type_offset[ttype]
-                           + tool_off + np.random.normal(0, 2.0))
+                           + tool_off + np.random.normal(0, 2.0) + dyn_adj)
                     used = float(np.random.uniform(0.5, 5.0))
                     volume = int(np.random.randint(200, 5000))
                     date = wk + timedelta(days=int(np.random.randint(0, 7)))
