@@ -279,10 +279,12 @@ def performance_status_from_eff(ct_eff_wt):
 
 
 def classify_risk(eff):
-    """NEW executive rule: Good if metric >= RISK_THRESHOLD, else At Risk."""
+    """At Risk if Slow (>105%) or Fast (<95%); Good if Within (95–105%)."""
     if pd.isna(eff):
         return 'No Data'
-    return 'Good' if eff >= RISK_THRESHOLD else 'At Risk'
+    if eff > FAST_THRESHOLD or eff < SLOW_THRESHOLD:
+        return 'At Risk'
+    return 'Good'
 
 
 # ==========================================================================
@@ -474,7 +476,7 @@ def risk_trend(df, dim, freq='W'):
                                  (g['Expected_Hours'] / g['Used_Hours']) * 100,
                                  np.nan)
     g = g[g['Efficiency_%'].notna()]
-    g['at_risk_flag'] = (g['Efficiency_%'] < RISK_THRESHOLD)
+    g['at_risk_flag'] = (g['Efficiency_%'] > FAST_THRESHOLD) | (g['Efficiency_%'] < SLOW_THRESHOLD)
     out = (g.groupby('bucket')
              .agg(at_risk=('at_risk_flag', 'sum'),
                   total=(dim, 'nunique'))

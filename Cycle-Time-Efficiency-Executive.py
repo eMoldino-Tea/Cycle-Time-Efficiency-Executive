@@ -175,20 +175,23 @@ def kpi_card(name, summary, prev_summary):
     pct = summary['pct_at_risk']
     pct_txt = f"{pct:.1f}%" if pct is not None else "—"
 
-    # delta vs previous period (percentage points of at-risk rate)
-    prev_pct = prev_summary['pct_at_risk']
-    if pct is None or prev_pct is None:
-        delta_html = '<span class="text-neutral">No prior-period data to compare</span>'
+    # delta vs previous period (% change of at-risk count)
+    prev_count = prev_summary['at_risk']
+    curr_count = at_risk
+    if prev_count == 0 and curr_count == 0:
+        delta_html = '<span class="text-neutral">&#8594; No change vs previous period</span>'
+    elif prev_count == 0:
+        delta_html = '<span class="text-red">&#9650; New entries at risk vs previous period</span>'
     else:
-        delta = pct - prev_pct  # negative == fewer at risk == improvement
-        if delta < 0:
-            delta_html = f'<span class="text-green">&#9660; {abs(delta):.1f} pts improvement vs previous period</span>'
-        elif delta > 0:
-            delta_html = f'<span class="text-red">&#9650; {delta:.1f} pts worse vs previous period</span>'
+        pct_change = (curr_count - prev_count) / prev_count * 100
+        if pct_change < 0:
+            delta_html = f'<span class="text-green">&#9660; {abs(pct_change):.1f}% vs previous period</span>'
+        elif pct_change > 0:
+            delta_html = f'<span class="text-red">&#9650; {pct_change:.1f}% vs previous period</span>'
         else:
-            delta_html = '<span class="text-neutral">No change vs previous period</span>'
+            delta_html = '<span class="text-neutral">&#8594; 0.0% vs previous period</span>'
 
-    risk_color = RED if (pct or 0) > 0 else GREEN
+    risk_color = GREY
     noun = name.replace(" Health", "") + "s"  # "Suppliers" / "Tooling Types" / "Parts"
     st.markdown(f"""
     <div class="kpi">
@@ -239,6 +242,16 @@ def _risk_css(v):
             "Good": "background-color:#14532d;color:#fff;"}.get(v, "")
 
 
+def _trend_change_css(v):
+    if not isinstance(v, str) or v == '—':
+        return 'color:#94a3b8;'
+    if v.startswith('↑'):
+        return 'color:#d9534f;'
+    if v.startswith('↓'):
+        return 'color:#5cb85c;'
+    return 'color:#94a3b8;'
+
+
 def style_table(df, fmt_map):
     fmt = {k: v for k, v in fmt_map.items() if k in df.columns}
     sty = df.style.format(fmt, na_rep="N/A")
@@ -282,7 +295,7 @@ st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashbo
 st.markdown(
     f'<div class="dash-sub">Period: <b>{period_label}</b> &nbsp;|&nbsp; '
     f'Labor ${labor_rate:.0f}/hr &middot; Machine ${machine_rate:.0f}/hr &nbsp;|&nbsp; '
-    f'At-Risk rule: Efficiency &lt; {risk_threshold:.0f}% &nbsp;|&nbsp; '
+    f'At-Risk rule: Slow (&gt;105%) or Fast (&lt;95%) &nbsp;&middot;&nbsp; Within (95–105%) = Good &nbsp;|&nbsp; '
     f'Records in view: {len(current_df):,}</div>',
     unsafe_allow_html=True,
 )
@@ -336,19 +349,18 @@ with level1:
 # LEVEL 2 — TREND ANALYSIS
 # ==========================================================================
 with level2:
-    st.markdown('<div class="section-title">Are We Improving or Declining?</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="dash-sub">Aggregated Cycle Time Efficiency over time, by dimension. '
-        'A rising line means efficiency is improving.</div>', unsafe_allow_html=True)
+    trend_view = st.radio(
+        "View", ["Month-to-Month", "Quarter-to-Quarter"], horizontal=True, key="trend_view"
+    )
+    trend_freq = 'M' if trend_view == "Month-to-Month" else 'Q'
+    trend_period_label = "Month" if trend_freq == 'M' else "Quarter"
 
-    trend_dims = [("Suppliers", "Supplier", GREEN),
-                  ("Tooling Types", "Tooling Type", YELLOW),
-                  ("Parts", "Part", RED)]
+    trend_dims = [("Suppliers", "Supplier"), ("Tooling Types", "Tooling Type"), ("Parts", "Part")]
 
-    # Compute aggregated CTE trend (same underlying data, same per-bucket result)
+    # Compute aggregated CTE trend for selected frequency
     _d = current_df.copy()
     if not _d.empty:
-        _d['bucket'] = _d['Date'].dt.to_period(FREQ).dt.start_time
+        _d['bucket'] = _d['Date'].dt.to_period(trend_freq).dt.start_time
         cte_trend = (
             _d.groupby('bucket')
               .agg(Expected_Hours=('Expected_Hours', 'sum'),
@@ -366,15 +378,15 @@ with level2:
 
     trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
-    for sub_tab, (label, dim, color) in zip(trend_sub_tabs, trend_dims):
+    for sub_tab, (label, dim) in zip(trend_sub_tabs, trend_dims):
         with sub_tab:
-            # --- CTE Trend Line ---
+            # --- CTE Trend Line (single neutral color) ---
             if not cte_trend.empty:
                 fig_line = go.Figure()
                 fig_line.add_trace(go.Scatter(
                     x=cte_trend['bucket'], y=cte_trend['CTE'],
                     mode="lines+markers", name="Cycle Time Efficiency",
-                    line=dict(color=color, width=2.5), marker=dict(size=6),
+                    line=dict(color=GREY, width=2.5), marker=dict(size=6),
                 ))
                 fig_line.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
@@ -390,36 +402,46 @@ with level2:
             else:
                 st.info("Not enough dated data in this range to plot a trend.")
 
-            # --- At-Risk Summary ---
-            st.markdown('<div class="section-title">At-Risk Summary</div>', unsafe_allow_html=True)
-            t = core.risk_trend(current_df, dim, FREQ)
+            # --- At-Risk Table ---
+            t = core.risk_trend(current_df, dim, trend_freq)
             if not t.empty:
                 t = t.copy().reset_index(drop=True)
                 t['prev_at_risk'] = t['at_risk'].shift(1)
-                t['pct_change'] = np.where(
-                    t['prev_at_risk'].notna() & (t['prev_at_risk'] != 0),
-                    (t['at_risk'] - t['prev_at_risk']) / t['prev_at_risk'] * 100,
-                    np.nan,
-                )
 
-                def _status(row):
-                    if pd.isna(row['pct_change']):
+                def _fmt_change(row):
+                    prev = row['prev_at_risk']
+                    curr = row['at_risk']
+                    if pd.isna(prev):
                         return '—'
-                    if row['pct_change'] < 0:
-                        return '↓ Improving'
-                    if row['pct_change'] > 0:
-                        return '↑ Deteriorating'
-                    return '→ No change'
+                    if prev == 0 and curr == 0:
+                        return '→ 0.0%'
+                    if prev == 0:
+                        return '↑ —'
+                    pct = (curr - prev) / prev * 100
+                    if pct < 0:
+                        return f'↓ {abs(pct):.1f}%'
+                    if pct > 0:
+                        return f'↑ {pct:.1f}%'
+                    return '→ 0.0%'
 
-                t['Status'] = t.apply(_status, axis=1)
-                t['% Change vs Prev'] = t['pct_change'].apply(
-                    lambda x: f"{x:+.1f}%" if pd.notna(x) else '—'
+                t['% Change vs Previous Period'] = t.apply(_fmt_change, axis=1)
+
+                if trend_freq == 'M':
+                    t['bucket'] = t['bucket'].dt.strftime('%b %Y')
+                else:
+                    t['bucket'] = t['bucket'].apply(
+                        lambda x: f"{x.year} Q{(x.month - 1) // 3 + 1}"
+                    )
+
+                display_t = t[['bucket', 'at_risk', 'total', '% Change vs Previous Period']].copy()
+                display_t.columns = [
+                    trend_period_label, f'{label} At Risk', f'Total {label}',
+                    '% Change vs Previous Period',
+                ]
+                sty = display_t.style.map(
+                    _trend_change_css, subset=['% Change vs Previous Period']
                 )
-                period_label = "Month" if FREQ == 'M' else "Week" if FREQ == 'W' else "Day"
-                display_t = t[['bucket', 'at_risk', 'total', '% Change vs Prev', 'Status']].copy()
-                display_t.columns = [period_label, f'{label} At Risk', f'Total {label}', '% Change vs Prev', 'Status']
-                display_t[period_label] = display_t[period_label].dt.strftime('%Y-%m-%d')
-                st.dataframe(display_t, use_container_width=True, hide_index=True)
+                st.dataframe(sty, use_container_width=True, hide_index=True)
             else:
                 st.info(f"No at-risk data available for {label}.")
 
