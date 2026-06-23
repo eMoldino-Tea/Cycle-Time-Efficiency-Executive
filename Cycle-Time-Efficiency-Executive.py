@@ -341,64 +341,62 @@ with level2:
         '<div class="dash-sub">Number of entities flagged At Risk over time, by dimension. '
         'A falling line means risk is reducing.</div>', unsafe_allow_html=True)
 
-    metric_mode = st.radio("Show", ["Count at risk", "% at risk"], horizontal=True)
+    metric_mode = st.radio("Show", ["Count at risk", "% at risk"], horizontal=True, key="trend_metric_mode")
     ycol = "at_risk" if metric_mode == "Count at risk" else "pct_at_risk"
-    ytitle = "Suppliers / Types / Parts at risk" if ycol == "at_risk" else "% at risk"
+    ytitle = "At risk" if ycol == "at_risk" else "% at risk"
 
     trend_dims = [("Suppliers", "Supplier", GREEN),
                   ("Tooling Types", "Tooling Type", YELLOW),
                   ("Parts", "Part", RED)]
 
-    combined = go.Figure()
-    any_data = False
-    for label, dim, color in trend_dims:
-        t = core.risk_trend(current_df, dim, FREQ)
-        if t.empty:
-            continue
-        any_data = True
-        combined.add_trace(go.Scatter(
-            x=t['bucket'], y=t[ycol], mode="lines+markers", name=label,
-            line=dict(color=color, width=2.5), marker=dict(size=6),
-        ))
-    if any_data:
-        combined.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=420, margin=dict(l=10, r=20, t=20, b=10),
-            xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
-            yaxis=dict(showgrid=True, gridcolor="#334155", title=ytitle,
-                       tickfont=dict(color="#94a3b8")),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            font=dict(color="#e2e8f0"),
-        )
-        if ycol == "pct_at_risk":
-            combined = threshold_line(combined, 0, "0% at risk (target)")
-        st.plotly_chart(combined, use_container_width=True, key="trend_combined")
-    else:
-        st.info("Not enough dated data in this range to plot a trend.")
+    trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
-    # Per-dimension stacked area for shape of risk
-    st.markdown('<div class="section-title">Risk Composition Over Time</div>', unsafe_allow_html=True)
-    area_cols = st.columns(3, gap="large")
-    for col, (label, dim, color) in zip(area_cols, trend_dims):
-        t = core.risk_trend(current_df, dim, FREQ)
-        if t.empty:
-            col.info(f"No {label} trend data.")
-            continue
-        t = t.copy()
-        t['healthy'] = t['total'] - t['at_risk']
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=t['bucket'], y=t['healthy'], stackgroup="one",
-                                 name="Healthy", line=dict(width=0), fillcolor="rgba(92,184,92,.55)"))
-        fig.add_trace(go.Scatter(x=t['bucket'], y=t['at_risk'], stackgroup="one",
-                                 name="At Risk", line=dict(width=0), fillcolor="rgba(217,83,79,.65)"))
-        fig.update_layout(
-            title=label, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=260, margin=dict(l=10, r=10, t=40, b=10),
-            xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
-            yaxis=dict(showgrid=True, gridcolor="#334155", tickfont=dict(color="#94a3b8")),
-            legend=dict(orientation="h", y=-0.2), font=dict(color="#e2e8f0"),
-        )
-        col.plotly_chart(fig, use_container_width=True, key=f"area_{dim}")
+    for sub_tab, (label, dim, color) in zip(trend_sub_tabs, trend_dims):
+        with sub_tab:
+            t = core.risk_trend(current_df, dim, FREQ)
+
+            # Combined trend line
+            if not t.empty:
+                fig_line = go.Figure()
+                fig_line.add_trace(go.Scatter(
+                    x=t['bucket'], y=t[ycol], mode="lines+markers", name=label,
+                    line=dict(color=color, width=2.5), marker=dict(size=6),
+                ))
+                fig_line.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    height=380, margin=dict(l=10, r=20, t=20, b=10),
+                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
+                    yaxis=dict(showgrid=True, gridcolor="#334155", title=ytitle,
+                               tickfont=dict(color="#94a3b8")),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    font=dict(color="#e2e8f0"),
+                )
+                if ycol == "pct_at_risk":
+                    fig_line = threshold_line(fig_line, 0, "0% at risk (target)")
+                st.plotly_chart(fig_line, use_container_width=True, key=f"trend_line_{dim}")
+            else:
+                st.info("Not enough dated data in this range to plot a trend.")
+
+            # Stacked area for risk composition
+            st.markdown('<div class="section-title">Risk Composition Over Time</div>', unsafe_allow_html=True)
+            if not t.empty:
+                t2 = t.copy()
+                t2['healthy'] = t2['total'] - t2['at_risk']
+                fig_area = go.Figure()
+                fig_area.add_trace(go.Scatter(x=t2['bucket'], y=t2['healthy'], stackgroup="one",
+                                              name="Healthy", line=dict(width=0), fillcolor="rgba(92,184,92,.55)"))
+                fig_area.add_trace(go.Scatter(x=t2['bucket'], y=t2['at_risk'], stackgroup="one",
+                                              name="At Risk", line=dict(width=0), fillcolor="rgba(217,83,79,.65)"))
+                fig_area.update_layout(
+                    title=label, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    height=300, margin=dict(l=10, r=10, t=40, b=10),
+                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
+                    yaxis=dict(showgrid=True, gridcolor="#334155", tickfont=dict(color="#94a3b8")),
+                    legend=dict(orientation="h", y=-0.2), font=dict(color="#e2e8f0"),
+                )
+                st.plotly_chart(fig_area, use_container_width=True, key=f"area_{dim}")
+            else:
+                st.info(f"No {label} composition data.")
 
 # ==========================================================================
 # LEVEL 3 — GRANULAR ANALYSIS  (cascading filters + reusable drill-down)
