@@ -46,184 +46,166 @@ BASELINE_RATE = 220.0
 # ==========================================================================
 @st.cache_data
 def load_base_data():
+    """SCENARIO-DRIVEN demo data.
+
+    Generates a realistic supply-chain dataset that spans the full performance
+    spectrum so the executive dashboard exercises every state: star performers,
+    healthy, borderline, at-risk, and critical entities, plus one supplier that
+    improves over the period and one that declines across the At-Risk line.
+
+    IMPORTANT: only the *data generation* differs from the original app. Every
+    downstream column and derivation (Total_Shots, ACT, Actual_CT, Efficiency_%,
+    Region, etc.) uses the same formulas, so all calculations are unchanged.
+    Each record's Tolerance_Status / hours / shots / financials are derived from
+    a target efficiency exactly as the original did (Fast: Expected = Used+Gain,
+    Slow: Expected = Used-Loss, Within: Expected = Used).
+    """
     np.random.seed(42)
 
-    T_GAIN_HRS = 15.2
-    T_LOSS_HRS = 3.0833333333333335
-    T_GAIN_SHOTS = 12553725
-    T_LOSS_SHOTS = 5342431
-    T_FIN_GAIN = 1688
-    T_FIN_LOSS = 1712
+    # ~26 weeks so trends and previous-period comparisons have data on both sides
+    end_date = datetime.today()
+    n_weeks = 26
+    week_starts = [end_date - timedelta(days=7 * (n_weeks - 1 - w)) for w in range(n_weeks)]
 
-    T_USED_FAST_MINS = 7337
-    T_USED_SLOW_MINS = 1457
+    # Supplier archetypes: (starting efficiency level, weekly slope)
+    suppliers = {
+        'Foxconn':        (108, 0.0),   # star
+        'Jabil':          (106, 0.0),   # star
+        'Flex':           (104, 0.0),   # strong
+        'Bosch Tooling':  (102, 0.0),   # healthy
+        'Denso Mold':     (100, 0.0),   # healthy
+        'Aisin Tool':     (98,  0.0),   # good (Within band)
+        'Celestica':      (92,  0.0),   # Slow but Good (>= 80)
+        'Pegatron':       (88,  0.0),   # Slow but Good
+        'Inventec':       (84,  0.0),   # borderline Good
+        'Sanmina':        (77,  0.0),   # AT RISK
+        'Wistron':        (72,  0.0),   # AT RISK
+        'Compal':         (62,  0.0),   # CRITICAL
+        'Quanta':         (70,  1.1),   # IMPROVING across the period
+        'New Era Molds':  (102, -1.0),  # DECLINING below the At-Risk line late
+    }
 
-    N_FAST = 300
-    N_SLOW = 150
-    N_WITHIN = 600
+    def tier(level):
+        if level >= 100:
+            return 'top'
+        if level >= 86:
+            return 'mid'
+        return 'low'
 
-    def generate_blended(f_items, s_items, w_items, counts):
-        arr = np.concatenate([
-            np.random.choice(f_items, counts[0]),
-            np.random.choice(s_items, counts[1]),
-            np.random.choice(w_items, counts[2])
-        ])
-        np.random.shuffle(arr)
-        return arr
+    type_pools = {
+        'top': ['Injection Molding', 'High Pressure Die Casting', 'Progressive Stamping', 'CNC Machining'],
+        'mid': ['Progressive Stamping', 'CNC Machining', 'Compression Molding', 'Blow Molding'],
+        'low': ['Blow Molding', 'Thermoforming', 'Vacuum Forming', 'Compression Molding'],
+    }
+    type_offset = {
+        'Injection Molding': 3, 'High Pressure Die Casting': 2, 'Progressive Stamping': 1,
+        'CNC Machining': 0, 'Compression Molding': -1, 'Blow Molding': -2,
+        'Thermoforming': -3, 'Vacuum Forming': -4,
+    }
+    product_pools = {
+        'top': ['Product X248', 'Product X277', 'Product X418'],
+        'mid': ['Product V15', 'Product V12', 'Product X620D'],
+        'low': ['Product Y99', 'Product Z11'],
+    }
+    part_pools = {
+        'top': [f"Part-{i:03d}" for i in range(1, 11)],
+        'mid': [f"Part-{i:03d}" for i in range(11, 23)],
+        'low': [f"Part-{i:03d}" for i in range(23, 31)],
+    }
+    plant_pools = {
+        'top': ['Plant 5 (CN)', 'Plant 1 (MX)', 'Plant 3 (DE)'],
+        'mid': ['Plant 1 (MX)', 'Plant 4 (PL)', 'Plant 6 (VN)'],
+        'low': ['Plant 7 (BR)', 'Plant 6 (VN)', 'Plant 2 (US)'],
+    }
+    oem_pool = ['NA Auto', 'EU Consumer', 'APAC Enterprise', 'LATAM Industrial']
 
-    sup_f_items = ['Foxconn', 'Jabil', 'Flex']
-    sup_s_items = ['Sanmina', 'Pegatron', 'Celestica']
-    sup_w_items = ['Supplier Alpha', 'Neutral Corp']
+    records = []
+    tool_counter = 1
+    for sup, (start_lvl, slope) in suppliers.items():
+        t = tier(start_lvl)
+        n_tools = np.random.randint(4, 8)
+        for _ in range(n_tools):
+            tool_id = f"TL-{tool_counter:03d}"
+            tool_counter += 1
+            ttype = np.random.choice(type_pools[t])
+            product = np.random.choice(product_pools[t])
+            part = np.random.choice(part_pools[t])
+            plant = np.random.choice(plant_pools[t])
+            oem = np.random.choice(oem_pool)
+            toolmaker = np.random.choice(['TM-A', 'TM-B', 'TM-C', 'TM-D'])
+            tool_off = np.random.uniform(-2, 2)
+            for w in range(n_weeks):
+                wk = week_starts[w]
+                for _ in range(np.random.randint(1, 4)):
+                    eff = (start_lvl + slope * w + type_offset[ttype]
+                           + tool_off + np.random.normal(0, 2.0))
+                    used = float(np.random.uniform(0.5, 5.0))
+                    volume = int(np.random.randint(200, 5000))
+                    date = wk + timedelta(days=int(np.random.randint(0, 7)))
 
-    suppliers_f = generate_blended(sup_f_items, sup_s_items, sup_w_items, (260, 16, 24))
-    suppliers_s = generate_blended(sup_f_items, sup_s_items, sup_w_items, (16, 120, 14))
-    suppliers_w = generate_blended(sup_f_items, sup_s_items, sup_w_items, (32, 8, 560))
+                    if eff > 105:
+                        status = 'Fast'
+                        expected = used * eff / 100.0
+                        gain, loss = expected - used, 0.0
+                        sg, sl = volume, 0
+                        bfg, bfl = gain * BASELINE_RATE, 0.0
+                    elif eff < 95:
+                        status = 'Slow'
+                        expected = used * eff / 100.0
+                        gain, loss = 0.0, used - expected
+                        sg, sl = 0, volume
+                        bfg, bfl = 0.0, loss * BASELINE_RATE
+                    else:
+                        status = 'Within'      # Expected == Used, no gain/loss
+                        expected = used
+                        gain = loss = 0.0
+                        sg = sl = 0
+                        bfg = bfl = 0.0
 
-    tt_f_items = ['Injection Molding', 'High Pressure Die Casting', 'Progressive Stamping']
-    tt_s_items = ['Thermoforming', 'Blow Molding', 'Vacuum Forming']
-    tt_w_items = ['Compression Molding', 'Rubber Molding', 'Silicone Molding']
+                    records.append({
+                        'Tolerance_Status': status, 'Gain_Hours': gain, 'Loss_Hours': loss,
+                        'Shots_Gained': sg, 'Shots_Lost': sl, 'Used_Hours': used,
+                        'Expected_Hours': expected, 'Base_Fin_Gain': bfg, 'Base_Fin_Loss': bfl,
+                        'Supplier': sup, 'Tooling Type': ttype, 'Product': product,
+                        'Part': part, 'Tooling': tool_id, 'Date': date,
+                        'OEM Business Division': oem, 'Toolmaker': toolmaker,
+                        'Plant': plant, '_vol': volume,
+                    })
 
-    tooling_f = generate_blended(tt_f_items, tt_s_items, tt_w_items, (260, 16, 24))
-    tooling_s = generate_blended(tt_f_items, tt_s_items, tt_w_items, (16, 120, 14))
-    tooling_w = generate_blended(tt_f_items, tt_s_items, tt_w_items, (32, 8, 560))
+    data = pd.DataFrame(records)
 
-    prod_f_items = ['Product X248', 'Product X277', 'Product X418']
-    prod_s_items = ['Product X620D', 'Product V15', 'Product V12']
-    prod_w_items = ['Product Y99', 'Product Z11']
-
-    products_f = generate_blended(prod_f_items, prod_s_items, prod_w_items, (260, 16, 24))
-    products_s = generate_blended(prod_f_items, prod_s_items, prod_w_items, (16, 120, 14))
-    products_w = generate_blended(prod_f_items, prod_s_items, prod_w_items, (32, 8, 560))
-
-    p_fast = [f"Part-{i:03d}" for i in range(1, 9)]
-    p_slow = [f"Part-{i:03d}" for i in range(9, 17)]
-    p_within = [f"Part-{i:03d}" for i in range(17, 25)]
-
-    parts_f = generate_blended(p_fast, p_slow, p_within, (260, 16, 24))
-    parts_s = generate_blended(p_fast, p_slow, p_within, (16, 120, 14))
-    parts_w = generate_blended(p_fast, p_slow, p_within, (32, 8, 560))
-
-    toolings_f = [f"TL-{np.random.randint(1, 15):03d}" for _ in range(N_FAST)]
-    toolings_s = [f"TL-{np.random.randint(15, 25):03d}" for _ in range(N_SLOW)]
-    toolings_w = [f"TL-{np.random.randint(25, 41):03d}" for _ in range(N_WITHIN)]
-
-    b_sup_f = {'Foxconn': 1.6, 'Jabil': 0.9, 'Flex': 0.5}
-    b_tool_f = {'Injection Molding': 1.4, 'High Pressure Die Casting': 1.0, 'Progressive Stamping': 0.6}
-    b_prod_f = {'Product X248': 1.25, 'Product X277': 1.05, 'Product X418': 0.7}
-    w_gain_f = np.array([b_sup_f.get(s, 1.0) * b_tool_f.get(t, 1.0) * b_prod_f.get(p, 1.0) for s, t, p in zip(suppliers_f, tooling_f, products_f)])
-    w_gain_f /= w_gain_f.sum()
-    w_used_f = np.random.uniform(0.9, 1.1, N_FAST)
-    w_used_f /= w_used_f.sum()
-
-    b_sup_s = {'Sanmina': 1.6, 'Pegatron': 0.9, 'Celestica': 0.5}
-    b_tool_s = {'Thermoforming': 1.4, 'Blow Molding': 1.0, 'Vacuum Forming': 0.6}
-    b_prod_s = {'Product X620D': 1.25, 'Product V15': 1.05, 'Product V12': 0.7}
-    w_loss_s = np.array([b_sup_s.get(s, 1.0) * b_tool_s.get(t, 1.0) * b_prod_s.get(p, 1.0) for s, t, p in zip(suppliers_s, tooling_s, products_s)])
-    w_loss_s /= w_loss_s.sum()
-    w_used_s = np.random.uniform(0.9, 1.1, N_SLOW)
-    w_used_s /= w_used_s.sum()
-
-    def exact_distribute(target_int, weights):
-        floored = np.floor(weights * target_int).astype(int)
-        remainder = int(target_int - floored.sum())
-        if remainder > 0:
-            fractions = (weights * target_int) - floored
-            indices = np.argsort(fractions)[::-1]
-            for i in range(remainder):
-                floored[indices[i]] += 1
-        return floored
-
-    gain_mins = exact_distribute(912, w_gain_f)
-    used_mins_f = exact_distribute(T_USED_FAST_MINS, w_used_f)
-    df_fast = pd.DataFrame({
-        'Tolerance_Status': ['Fast'] * N_FAST,
-        'Gain_Hours': gain_mins / 60.0,
-        'Loss_Hours': 0.0,
-        'Shots_Gained': exact_distribute(T_GAIN_SHOTS, w_gain_f),
-        'Shots_Lost': 0.0,
-        'Used_Hours': used_mins_f / 60.0,
-        'Base_Fin_Gain': exact_distribute(T_FIN_GAIN, w_gain_f).astype(float),
-        'Base_Fin_Loss': 0.0,
-        'Supplier': suppliers_f,
-        'Tooling Type': tooling_f,
-        'Product': products_f,
-        'Part': parts_f,
-        'Tooling': toolings_f
-    })
-    df_fast['Expected_Hours'] = df_fast['Used_Hours'] + df_fast['Gain_Hours']
-
-    loss_mins = exact_distribute(185, w_loss_s)
-    used_mins_s = exact_distribute(T_USED_SLOW_MINS, w_used_s)
-    df_slow = pd.DataFrame({
-        'Tolerance_Status': ['Slow'] * N_SLOW,
-        'Gain_Hours': 0.0,
-        'Loss_Hours': loss_mins / 60.0,
-        'Shots_Gained': 0.0,
-        'Shots_Lost': exact_distribute(T_LOSS_SHOTS, w_loss_s),
-        'Used_Hours': used_mins_s / 60.0,
-        'Base_Fin_Gain': 0.0,
-        'Base_Fin_Loss': exact_distribute(T_FIN_LOSS, w_loss_s).astype(float),
-        'Supplier': suppliers_s,
-        'Tooling Type': tooling_s,
-        'Product': products_s,
-        'Part': parts_s,
-        'Tooling': toolings_s
-    })
-    df_slow['Expected_Hours'] = df_slow['Used_Hours'] - df_slow['Loss_Hours']
-
-    df_within = pd.DataFrame({
-        'Tolerance_Status': ['Within'] * N_WITHIN,
-        'Gain_Hours': 0.0,
-        'Loss_Hours': 0.0,
-        'Shots_Gained': 0.0,
-        'Shots_Lost': 0.0,
-        'Expected_Hours': np.random.uniform(0.1, 0.4, N_WITHIN),
-        'Base_Fin_Gain': 0.0,
-        'Base_Fin_Loss': 0.0,
-        'Supplier': suppliers_w,
-        'Tooling Type': tooling_w,
-        'Product': products_w,
-        'Part': parts_w,
-        'Tooling': toolings_w
-    })
-    df_within['Used_Hours'] = df_within['Expected_Hours']
-
-    data = pd.concat([df_fast, df_slow, df_within], ignore_index=True)
-
+    # ---- derived fields: SAME formulas as the original app -----------------
     data['Total_Shots'] = data['Shots_Gained'] + data['Shots_Lost']
-    data.loc[data['Tolerance_Status'] == 'Within', 'Total_Shots'] = np.random.randint(100, 1000, N_WITHIN)
+    within_mask = data['Tolerance_Status'] == 'Within'
+    data.loc[within_mask, 'Total_Shots'] = data.loc[within_mask, '_vol']
+    data.drop(columns='_vol', inplace=True)
     data['ACT'] = (data['Expected_Hours'] * 3600) / data['Total_Shots']
     data['Actual_CT'] = (data['Used_Hours'] * 3600) / data['Total_Shots']
     data['Efficiency_%'] = np.where(data['Used_Hours'] > 0, (data['Expected_Hours'] / data['Used_Hours']) * 100, 0)
 
-    end_date = datetime.today()
-    start_date = end_date - timedelta(days=89)
-    date_offsets = np.random.randint(0, 90, len(data))
-    data['Date'] = [start_date + timedelta(days=int(x)) for x in date_offsets]
-
-    data['OEM Business Division'] = np.random.choice(['NA Auto', 'EU Consumer', 'APAC Enterprise', 'LATAM Industrial'], len(data))
-    data['Toolmaker'] = np.random.choice(['TM-A', 'TM-B', 'TM-C', 'TM-D'], len(data))
-    data['Plant'] = np.random.choice(['Plant 1 (MX)', 'Plant 2 (DE)', 'Plant 3 (CN)', 'Plant 4 (VN)'], len(data))
-
-    part_names_pool = [
-        'Unused', 'Housing Top', 'Housing Bottom', 'Display Lens', 'Battery Bracket',
-        'Main Chassis', 'Camera Frame', 'Speaker Grill', 'Mic Mesh', 'Antenna Band',
-        'Haptic Motor', 'USB Port', 'Power Key', 'Volume Key', 'SIM Slot',
-        'Bezel', 'Rear Glass', 'Cooling Pad', 'EMI Shield', 'Biometric Scanner',
-        'IR Sensor', 'Flash Module', 'Charging Coil', 'NFC Tag', 'Vapor Chamber'
-    ]
-    data['Part Name'] = data['Part'].apply(lambda x: part_names_pool[int(x.split('-')[1])])
+    part_names = {
+        'Part-001': 'Housing Top', 'Part-002': 'Housing Bottom', 'Part-003': 'Display Lens',
+        'Part-004': 'Battery Bracket', 'Part-005': 'Main Chassis', 'Part-006': 'Camera Frame',
+        'Part-007': 'Speaker Grill', 'Part-008': 'Antenna Band', 'Part-009': 'Bezel',
+        'Part-010': 'Rear Glass', 'Part-011': 'Mic Mesh', 'Part-012': 'Haptic Motor',
+        'Part-013': 'USB Port', 'Part-014': 'Power Key', 'Part-015': 'Volume Key',
+        'Part-016': 'SIM Slot', 'Part-017': 'Cooling Pad', 'Part-018': 'EMI Shield',
+        'Part-019': 'Charging Coil', 'Part-020': 'NFC Tag', 'Part-021': 'IR Sensor',
+        'Part-022': 'Flash Module', 'Part-023': 'Biometric Scanner', 'Part-024': 'Vapor Chamber',
+        'Part-025': 'Heat Sink', 'Part-026': 'Gasket Seal', 'Part-027': 'Connector Shroud',
+        'Part-028': 'Lens Mount', 'Part-029': 'Hinge Cap', 'Part-030': 'Trim Frame',
+    }
+    data['Part Name'] = data['Part'].map(part_names).fillna('Component')
 
     # ---- DERIVED (display-only) Region -------------------------------------
     # The source dataset has no native "Region" column. The executive spec asks
-    # for a Region filter, so we derive one transparently from the Plant country
-    # code. This is a UI convenience only and touches no calculation. When the
-    # real dataset provides a native Region field, replace this single mapping.
+    # for a Region filter, so we derive one from the Plant country code. This is
+    # a UI convenience only and touches no calculation. Swap this one mapping
+    # when the real dataset provides a native Region field.
     plant_to_region = {
-        'Plant 1 (MX)': 'North America',
-        'Plant 2 (DE)': 'Europe',
-        'Plant 3 (CN)': 'APAC',
-        'Plant 4 (VN)': 'APAC',
+        'Plant 1 (MX)': 'North America', 'Plant 2 (US)': 'North America',
+        'Plant 3 (DE)': 'Europe', 'Plant 4 (PL)': 'Europe',
+        'Plant 5 (CN)': 'APAC', 'Plant 6 (VN)': 'APAC', 'Plant 7 (BR)': 'LATAM',
     }
     data['Region'] = data['Plant'].map(plant_to_region).fillna('Other')
 

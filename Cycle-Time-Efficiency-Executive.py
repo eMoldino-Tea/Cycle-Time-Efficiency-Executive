@@ -123,7 +123,7 @@ core.RISK_THRESHOLD = risk_threshold  # propagate to all core helpers
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Trend Granularity")
 gran_label = st.sidebar.radio("Bucket", ["Daily", "Weekly", "Monthly"], index=1)
-FREQ = {"Daily": "D", "Weekly": "W", "Monthly": "MS"}[gran_label]
+FREQ = {"Daily": "D", "Weekly": "W", "Monthly": "M"}[gran_label]
 
 # ---- Build current & previous-period slices (same financial transform) -----
 def date_slice(df, s, e):
