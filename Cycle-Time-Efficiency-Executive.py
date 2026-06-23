@@ -520,3 +520,12 @@ with level3:
         render_dimension_view(gran_df, "Tooling Type", "toolingtype")
     with part_tab:
         render_dimension_view(gran_df, "Part", "part")
+
+# ==========================================================================
+# SIDEBAR FOOTER
+# ==========================================================================
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    '<div style="color:#475569; font-size:.8rem; text-align:center;">v1.0.0</div>',
+    unsafe_allow_html=True,
+)
