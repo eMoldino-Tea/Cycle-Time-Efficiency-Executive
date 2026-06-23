@@ -64,7 +64,6 @@ header {background-color:transparent !important;}
   box-shadow:0 4px 6px -1px rgba(0,0,0,.2); height:100%;}
 .kpi-top {display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
 .kpi-name {font-size:1.05rem; font-weight:600; color:#cbd5e1; letter-spacing:.3px;}
-.kpi-dot {width:12px; height:12px; border-radius:50%;}
 .kpi-big {font-size:2.4rem; font-weight:800; line-height:1; color:#fff;}
 .kpi-unit {font-size:.95rem; color:#94a3b8; margin-top:6px;}
 .kpi-row {display:flex; justify-content:space-between; margin-top:14px; font-size:.95rem;}
@@ -151,16 +150,6 @@ def kpi_card(name, summary, prev_summary):
     pct = summary['pct_at_risk']
     pct_txt = f"{pct:.1f}%" if pct is not None else "—"
 
-    # severity dot
-    if pct is None:
-        dot = GREY
-    elif pct == 0:
-        dot = GREEN
-    elif pct <= 10:
-        dot = YELLOW
-    else:
-        dot = RED
-
     # delta vs previous period (percentage points of at-risk rate)
     prev_pct = prev_summary['pct_at_risk']
     if pct is None or prev_pct is None:
@@ -180,7 +169,6 @@ def kpi_card(name, summary, prev_summary):
     <div class="kpi">
       <div class="kpi-top">
         <span class="kpi-name">{name}</span>
-        <span class="kpi-dot" style="background-color:{dot};"></span>
       </div>
       <div class="kpi-big" style="color:{risk_color};">{at_risk:,}</div>
       <div class="kpi-unit">at risk &nbsp;&middot;&nbsp; {pct_txt} of {total:,} total</div>
@@ -275,18 +263,16 @@ st.markdown(
 )
 
 level1, level2, level3 = st.tabs([
-    "① Executive Overview", "② Trend Analysis", "③ Granular Analysis",
+    "Executive Summary", "Trend Analysis", "Granular Analysis",
 ])
 
 # ==========================================================================
 # LEVEL 1 — EXECUTIVE OVERVIEW
 # ==========================================================================
 with level1:
-    st.markdown('<div class="section-title">Portfolio Health at a Glance</div>', unsafe_allow_html=True)
-
-    dims = [("Supplier Health", "Supplier"),
-            ("Tooling Type Health", "Tooling Type"),
-            ("Part Health", "Part")]
+    dims = [("Supplier", "Supplier"),
+            ("Tooling Type", "Tooling Type"),
+            ("Part", "Part")]
 
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
@@ -296,37 +282,10 @@ with level1:
                      core.risk_summary(previous_df, dim))
 
     st.markdown(
-        '<div class="legend-note">Status dot: green = none at risk, amber = ≤10% at risk, '
-        'red = &gt;10% at risk. Delta compares the at-risk rate against the equally-sized '
+        '<div class="legend-note">Delta compares the at-risk rate against the equally-sized '
         'period immediately before the selected range.</div>',
         unsafe_allow_html=True,
     )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ---- Performing-well vs at-risk split (the "5,000 parts" scenario) ------
-    st.markdown('<div class="section-title">Performing Well vs At Risk</div>', unsafe_allow_html=True)
-    split_cols = st.columns(3, gap="large")
-    for col, (title, dim) in zip(split_cols, dims):
-        eff = core.entity_efficiency(current_df, dim)
-        eff = eff[eff['Risk Status'] != 'No Data']
-        good = int((eff['Risk Status'] == 'Good').sum())
-        at_risk = int((eff['Risk Status'] == 'At Risk').sum())
-        if good + at_risk == 0:
-            col.info(f"No {dim} data.")
-            continue
-        donut = go.Figure(go.Pie(
-            labels=["Performing Well", "At Risk"], values=[good, at_risk],
-            hole=0.6, marker_colors=[GREEN, RED], sort=False,
-            textinfo="value", hovertemplate="%{label}: %{value}<extra></extra>",
-        ))
-        donut.update_layout(
-            title=dim, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=260, margin=dict(l=10, r=10, t=40, b=10),
-            legend=dict(orientation="h", y=-0.1), showlegend=True,
-            font=dict(color="#e2e8f0"),
-        )
-        col.plotly_chart(donut, use_container_width=True, key=f"donut_{dim}")
 
 # ==========================================================================
 # LEVEL 2 — TREND ANALYSIS
