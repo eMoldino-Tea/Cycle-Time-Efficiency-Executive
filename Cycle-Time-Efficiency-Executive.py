@@ -350,43 +350,50 @@ with level1:
 # ==========================================================================
 with level2:
     trend_view = st.radio(
-        "View", ["Month-to-Month", "Quarter-to-Quarter"], horizontal=True, key="trend_view"
+        "View", ["Month to Month", "Quarter to Quarter"], horizontal=True, key="trend_view"
     )
-    trend_freq = 'M' if trend_view == "Month-to-Month" else 'Q'
+    trend_freq = 'M' if trend_view == "Month to Month" else 'Q'
     trend_period_label = "Month" if trend_freq == 'M' else "Quarter"
 
-    trend_dims = [("Suppliers", "Supplier"), ("Tooling Types", "Tooling Type"), ("Parts", "Part")]
+    trend_dims = [
+        ("Suppliers", "Supplier", "#38bdf8"),
+        ("Tooling Types", "Tooling Type", "#fb923c"),
+        ("Parts", "Part", "#a78bfa"),
+    ]
 
-    # Compute aggregated CTE trend for selected frequency
     _d = current_df.copy()
     if not _d.empty:
         _d['bucket'] = _d['Date'].dt.to_period(trend_freq).dt.start_time
-        cte_trend = (
-            _d.groupby('bucket')
-              .agg(Expected_Hours=('Expected_Hours', 'sum'),
-                   Used_Hours=('Used_Hours', 'sum'))
-              .reset_index()
-        )
-        cte_trend['CTE'] = np.where(
-            cte_trend['Used_Hours'] > 0,
-            cte_trend['Expected_Hours'] / cte_trend['Used_Hours'] * 100,
-            np.nan,
-        )
-        cte_trend = cte_trend.dropna(subset=['CTE']).sort_values('bucket')
-    else:
-        cte_trend = pd.DataFrame(columns=['bucket', 'CTE'])
 
     trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
-    for sub_tab, (label, dim) in zip(trend_sub_tabs, trend_dims):
+    for sub_tab, (label, dim, tab_color) in zip(trend_sub_tabs, trend_dims):
         with sub_tab:
-            # --- CTE Trend Line (single neutral color) ---
+            # Compute per-entity-average CTE trend for this dimension
+            if not _d.empty:
+                per_ent = (
+                    _d.groupby(['bucket', dim])
+                      .agg(Expected_Hours=('Expected_Hours', 'sum'),
+                           Used_Hours=('Used_Hours', 'sum'))
+                      .reset_index()
+                )
+                per_ent['CTE'] = np.where(per_ent['Used_Hours'] > 0,
+                                          per_ent['Expected_Hours'] / per_ent['Used_Hours'] * 100,
+                                          np.nan)
+                cte_trend = (per_ent.groupby('bucket')['CTE'].mean()
+                                    .reset_index()
+                                    .dropna(subset=['CTE'])
+                                    .sort_values('bucket'))
+            else:
+                cte_trend = pd.DataFrame(columns=['bucket', 'CTE'])
+
+            # --- CTE Trend Line ---
             if not cte_trend.empty:
                 fig_line = go.Figure()
                 fig_line.add_trace(go.Scatter(
                     x=cte_trend['bucket'], y=cte_trend['CTE'],
                     mode="lines+markers", name="Cycle Time Efficiency",
-                    line=dict(color=GREY, width=2.5), marker=dict(size=6),
+                    line=dict(color=tab_color, width=2.5), marker=dict(size=6),
                 ))
                 fig_line.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",

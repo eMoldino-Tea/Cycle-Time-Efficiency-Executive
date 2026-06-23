@@ -66,23 +66,24 @@ def load_base_data():
     end_date = datetime.today()
     n_weeks = 26
     week_starts = [end_date - timedelta(days=7 * (n_weeks - 1 - w)) for w in range(n_weeks)]
+    week_macro_noise = np.random.normal(0, 2.5, n_weeks)
 
     # Supplier archetypes: (starting efficiency level, weekly slope)
     suppliers = {
-        'Foxconn':        (108, 0.0),   # star
-        'Jabil':          (106, 0.0),   # star
-        'Flex':           (104, 0.0),   # strong
-        'Bosch Tooling':  (102, 0.0),   # healthy
-        'Denso Mold':     (100, 0.0),   # healthy
-        'Aisin Tool':     (98,  0.0),   # good (Within band)
-        'Celestica':      (92,  0.0),   # Slow but Good (>= 80)
-        'Pegatron':       (88,  0.0),   # Slow but Good
-        'Inventec':       (84,  0.0),   # borderline Good
-        'Sanmina':        (77,  0.0),   # AT RISK
-        'Wistron':        (72,  0.0),   # AT RISK
-        'Compal':         (62,  0.0),   # CRITICAL
-        'Quanta':         (70,  1.1),   # IMPROVING across the period
-        'New Era Molds':  (102, -1.0),  # DECLINING below the At-Risk line late
+        'Foxconn':        (108,  0.0),   # star
+        'Jabil':          (106,  0.0),   # star
+        'Flex':           (104, -0.3),   # slight decline
+        'Bosch Tooling':  (102,  0.0),   # healthy
+        'Denso Mold':     (100,  0.0),   # healthy
+        'Aisin Tool':     (98,   0.1),   # slight improvement
+        'Celestica':      (92,   0.3),   # improving toward Within
+        'Pegatron':       (88,   0.4),   # improving
+        'Inventec':       (84,   0.5),   # improving
+        'Sanmina':        (77,   0.6),   # improving
+        'Wistron':        (72,   0.5),   # improving
+        'Compal':         (62,   0.4),   # improving
+        'Quanta':         (70,   1.1),   # IMPROVING across the period
+        'New Era Molds':  (102, -1.0),   # DECLINING below the At-Risk line late
     }
 
     def tier(level):
@@ -101,6 +102,12 @@ def load_base_data():
         'Injection Molding': 3, 'High Pressure Die Casting': 2, 'Progressive Stamping': 1,
         'CNC Machining': 0, 'Compression Molding': -1, 'Blow Molding': -2,
         'Thermoforming': -3, 'Vacuum Forming': -4,
+    }
+    # Per-period slopes for parts (top-tier parts decline) and tooling types (low-tier types improve)
+    part_slopes = {f"Part-{i:03d}": -0.4 for i in range(1, 11)}
+    type_slopes = {
+        'Blow Molding': 0.4, 'Thermoforming': 0.3,
+        'Vacuum Forming': 0.3, 'Compression Molding': 0.2,
     }
     product_pools = {
         'top': ['Product X248', 'Product X277', 'Product X418'],
@@ -155,7 +162,10 @@ def load_base_data():
                     dyn_adj += dyn_p['bump'] + (dyn_p['step'] if w >= STEP_WEEK else 0.0)
                 for _ in range(np.random.randint(1, 4)):
                     eff = (start_lvl + slope * w + type_offset[ttype]
-                           + tool_off + np.random.normal(0, 2.0) + dyn_adj)
+                           + tool_off + np.random.normal(0, 2.0) + dyn_adj
+                           + part_slopes.get(part, 0.0) * w
+                           + type_slopes.get(ttype, 0.0) * w
+                           + week_macro_noise[w])
                     used = float(np.random.uniform(0.5, 5.0))
                     volume = int(np.random.randint(200, 5000))
                     date = wk + timedelta(days=int(np.random.randint(0, 7)))
