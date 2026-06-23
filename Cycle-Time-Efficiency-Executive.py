@@ -338,65 +338,90 @@ with level1:
 with level2:
     st.markdown('<div class="section-title">Are We Improving or Declining?</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="dash-sub">Number of entities flagged At Risk over time, by dimension. '
-        'A falling line means risk is reducing.</div>', unsafe_allow_html=True)
-
-    metric_mode = st.radio("Show", ["Count at risk", "% at risk"], horizontal=True, key="trend_metric_mode")
-    ycol = "at_risk" if metric_mode == "Count at risk" else "pct_at_risk"
-    ytitle = "At risk" if ycol == "at_risk" else "% at risk"
+        '<div class="dash-sub">Aggregated Cycle Time Efficiency over time, by dimension. '
+        'A rising line means efficiency is improving.</div>', unsafe_allow_html=True)
 
     trend_dims = [("Suppliers", "Supplier", GREEN),
                   ("Tooling Types", "Tooling Type", YELLOW),
                   ("Parts", "Part", RED)]
 
+    # Compute aggregated CTE trend (same underlying data, same per-bucket result)
+    _d = current_df.copy()
+    if not _d.empty:
+        _d['bucket'] = _d['Date'].dt.to_period(FREQ).dt.start_time
+        cte_trend = (
+            _d.groupby('bucket')
+              .agg(Expected_Hours=('Expected_Hours', 'sum'),
+                   Used_Hours=('Used_Hours', 'sum'))
+              .reset_index()
+        )
+        cte_trend['CTE'] = np.where(
+            cte_trend['Used_Hours'] > 0,
+            cte_trend['Expected_Hours'] / cte_trend['Used_Hours'] * 100,
+            np.nan,
+        )
+        cte_trend = cte_trend.dropna(subset=['CTE']).sort_values('bucket')
+    else:
+        cte_trend = pd.DataFrame(columns=['bucket', 'CTE'])
+
     trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
     for sub_tab, (label, dim, color) in zip(trend_sub_tabs, trend_dims):
         with sub_tab:
-            t = core.risk_trend(current_df, dim, FREQ)
-
-            # Combined trend line
-            if not t.empty:
+            # --- CTE Trend Line ---
+            if not cte_trend.empty:
                 fig_line = go.Figure()
                 fig_line.add_trace(go.Scatter(
-                    x=t['bucket'], y=t[ycol], mode="lines+markers", name=label,
+                    x=cte_trend['bucket'], y=cte_trend['CTE'],
+                    mode="lines+markers", name="Cycle Time Efficiency",
                     line=dict(color=color, width=2.5), marker=dict(size=6),
                 ))
                 fig_line.update_layout(
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                     height=380, margin=dict(l=10, r=20, t=20, b=10),
                     xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
-                    yaxis=dict(showgrid=True, gridcolor="#334155", title=ytitle,
+                    yaxis=dict(showgrid=True, gridcolor="#334155",
+                               title="Cycle Time Efficiency (%)",
                                tickfont=dict(color="#94a3b8")),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     font=dict(color="#e2e8f0"),
                 )
-                if ycol == "pct_at_risk":
-                    fig_line = threshold_line(fig_line, 0, "0% at risk (target)")
                 st.plotly_chart(fig_line, use_container_width=True, key=f"trend_line_{dim}")
             else:
                 st.info("Not enough dated data in this range to plot a trend.")
 
-            # Stacked area for risk composition
-            st.markdown('<div class="section-title">Risk Composition Over Time</div>', unsafe_allow_html=True)
+            # --- At-Risk Summary ---
+            st.markdown('<div class="section-title">At-Risk Summary</div>', unsafe_allow_html=True)
+            t = core.risk_trend(current_df, dim, FREQ)
             if not t.empty:
-                t2 = t.copy()
-                t2['healthy'] = t2['total'] - t2['at_risk']
-                fig_area = go.Figure()
-                fig_area.add_trace(go.Scatter(x=t2['bucket'], y=t2['healthy'], stackgroup="one",
-                                              name="Healthy", line=dict(width=0), fillcolor="rgba(92,184,92,.55)"))
-                fig_area.add_trace(go.Scatter(x=t2['bucket'], y=t2['at_risk'], stackgroup="one",
-                                              name="At Risk", line=dict(width=0), fillcolor="rgba(217,83,79,.65)"))
-                fig_area.update_layout(
-                    title=label, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    height=300, margin=dict(l=10, r=10, t=40, b=10),
-                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
-                    yaxis=dict(showgrid=True, gridcolor="#334155", tickfont=dict(color="#94a3b8")),
-                    legend=dict(orientation="h", y=-0.2), font=dict(color="#e2e8f0"),
+                t = t.copy().reset_index(drop=True)
+                t['prev_at_risk'] = t['at_risk'].shift(1)
+                t['pct_change'] = np.where(
+                    t['prev_at_risk'].notna() & (t['prev_at_risk'] != 0),
+                    (t['at_risk'] - t['prev_at_risk']) / t['prev_at_risk'] * 100,
+                    np.nan,
                 )
-                st.plotly_chart(fig_area, use_container_width=True, key=f"area_{dim}")
+
+                def _status(row):
+                    if pd.isna(row['pct_change']):
+                        return '—'
+                    if row['pct_change'] < 0:
+                        return '↓ Improving'
+                    if row['pct_change'] > 0:
+                        return '↑ Deteriorating'
+                    return '→ No change'
+
+                t['Status'] = t.apply(_status, axis=1)
+                t['% Change vs Prev'] = t['pct_change'].apply(
+                    lambda x: f"{x:+.1f}%" if pd.notna(x) else '—'
+                )
+                period_label = "Month" if FREQ == 'M' else "Week" if FREQ == 'W' else "Day"
+                display_t = t[['bucket', 'at_risk', 'total', '% Change vs Prev', 'Status']].copy()
+                display_t.columns = [period_label, f'{label} At Risk', f'Total {label}', '% Change vs Prev', 'Status']
+                display_t[period_label] = display_t[period_label].dt.strftime('%Y-%m-%d')
+                st.dataframe(display_t, use_container_width=True, hide_index=True)
             else:
-                st.info(f"No {label} composition data.")
+                st.info(f"No at-risk data available for {label}.")
 
 # ==========================================================================
 # LEVEL 3 — GRANULAR ANALYSIS  (cascading filters + reusable drill-down)
