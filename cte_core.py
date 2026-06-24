@@ -151,8 +151,14 @@ def load_base_data(version: int = 3):
     part_dyn2 = {'Part-015': {'step': -10.0}}         # Part at-risk INCREASES in current
     # Wistron (72, slope=0.5): natural eff at week 44≈94% (At-Risk Fast), week 48≈96% (Good).
     # Boost by +3 pp from week 48 ensures it is unambiguously Good in the current window and
-    # unambiguously At-Risk in the previous window → Supplier at-risk DECREASES.
-    sup_dyn2 = {'Wistron': {'step': 3.0}}
+    # unambiguously At-Risk in the previous window → Supplier at-risk count DECREASES.
+    # Sanmina (77, slope=0.6): without adjustment week 48≈105.8% (Slow, At-Risk), which would
+    # add a new at-risk supplier in the current window and cancel Wistron's improvement.
+    # Step of -6 pp keeps it at ≈100% in the current window → stays Good → net decrease holds.
+    sup_dyn2 = {
+        'Wistron': {'step':  3.0},
+        'Sanmina': {'step': -6.0},
+    }
 
     records = []
     tool_counter = 1
