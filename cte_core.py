@@ -62,8 +62,8 @@ def load_base_data(version: int = 3):
     """
     np.random.seed(42)
 
-    # ~26 weeks so trends and previous-period comparisons have data on both sides
-    end_date = datetime.today()
+    # Fixed reference date keeps the cached function fully deterministic
+    end_date = datetime(2026, 6, 30)
     n_weeks = 52
     week_starts = [end_date - timedelta(days=7 * (n_weeks - 1 - w)) for w in range(n_weeks)]
     week_macro_noise = np.random.normal(0, 2.5, n_weeks)
