@@ -81,7 +81,7 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data(version=3)
+base_df = core.load_base_data(version=4)
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
@@ -168,7 +168,7 @@ def kpi_card(name, summary, prev_summary):
     if prev_count == 0 and curr_count == 0:
         delta_html = '<span class="text-neutral">&#8594; No change vs previous period</span>'
     elif prev_count == 0:
-        delta_html = '<span class="text-red">&#9650; New entries at risk vs previous period</span>'
+        delta_html = f'<span class="text-red">&#9650; {curr_count} new at-risk entr{"y" if curr_count == 1 else "ies"} vs previous period (was 0)</span>'
     else:
         pct_change = (curr_count - prev_count) / prev_count * 100
         if pct_change < 0:
@@ -286,11 +286,39 @@ def _bucket_label(bucket_ts, freq):
 # ==========================================================================
 st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashboard</div>', unsafe_allow_html=True)
 st.markdown(
-    f'<div class="dash-sub">Period: <b>{period_label}</b> &nbsp;|&nbsp; '
-    f'Labor ${labor_rate:.0f}/hr &middot; Machine ${machine_rate:.0f}/hr &nbsp;|&nbsp; '
-    f'At Risk: Slow (&gt;105% Cycle Time Efficiency) or Fast (&lt;95% Cycle Time Efficiency), '
-    f'Good: Within (95%–105% Cycle Time Efficiency) &nbsp;|&nbsp; '
-    f'Records in view: {len(current_df):,}</div>',
+    f'<div class="dash-sub">'
+    f'At Risk: Slow (&gt;105% CT Efficiency) or Fast (&lt;95% CT Efficiency) &nbsp;|&nbsp; '
+    f'Good: Within (95%–105% CT Efficiency)'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+
+# Filter Summary bar
+_active = {k: v for k, v in master_selections.items() if v}
+_chip_html = ""
+for _k, _vals in _active.items():
+    _val_str = ", ".join(_vals)
+    _chip_html += (
+        f'<span style="background:#1e293b;border:1px solid #38bdf8;border-radius:6px;'
+        f'padding:3px 12px;font-size:.85rem;color:#e2e8f0;white-space:nowrap;">'
+        f'<b>{_k}:</b> {_val_str}</span> '
+    )
+_filters_row = (
+    f'<span style="color:#64748b;font-size:.88rem;margin-right:8px;">Filters:</span>'
+    + (_chip_html if _chip_html else '<span style="color:#475569;font-size:.85rem;">None applied</span>')
+)
+st.markdown(
+    f'<div style="background:#1a1d26;border:1px solid #2d3748;border-radius:10px;'
+    f'padding:12px 20px;margin-bottom:18px;">'
+    f'<div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:6px;">'
+    f'<span style="color:#94a3b8;font-size:.88rem;">'
+    f'<b>Date Range:</b> {period_label}</span>'
+    f'<span style="color:#94a3b8;font-size:.88rem;">'
+    f'<b>Financial Parameters:</b> Labor ${labor_rate:.2f}/hr &nbsp;|&nbsp; Machine ${machine_rate:.2f}/hr</span>'
+    f'</div>'
+    f'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">'
+    f'{_filters_row}</div>'
+    f'</div>',
     unsafe_allow_html=True,
 )
 

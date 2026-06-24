@@ -136,6 +136,20 @@ def load_base_data(version: int = 3):
     type_dyn = {'Blow Molding': {'bump': 4.0, 'step': -15.0}}   # good -> at risk
     part_dyn = {'Part-025': {'bump': 4.0, 'step': -15.0}}       # good -> at risk
 
+    # Second step near the boundary between the 30-60 day window (previous
+    # period) and the 0-30 day window (current period) for the default
+    # "Last 30 Days" selector. Weeks 48-52 = current; weeks 44-47 = previous.
+    # - CNC Machining: borderline-Good tools (e.g. Aisin Tool ~102%) drop
+    #   10 pp at week 48, crossing into Fast/At-Risk in the current period
+    #   → Tooling Type at-risk count INCREASES current vs previous.
+    # - Part-015: same mechanism for the Part dimension.
+    # Wistron (72, slope=0.5) naturally crosses from At-Risk Fast (~94% at
+    # week 44) to Good (~97% at week 49) without any step, so Supplier
+    # at-risk count DECREASES current vs previous.
+    STEP_WEEK2 = 48
+    type_dyn2 = {'CNC Machining': {'step': -10.0}}
+    part_dyn2 = {'Part-015': {'step': -10.0}}
+
     records = []
     tool_counter = 1
     for sup, (start_lvl, slope) in suppliers.items():
@@ -153,6 +167,8 @@ def load_base_data(version: int = 3):
             tool_off = np.random.uniform(-2, 2)
             dyn_t = type_dyn.get(ttype, None)
             dyn_p = part_dyn.get(part, None)
+            dyn_t2 = type_dyn2.get(ttype, None)
+            dyn_p2 = part_dyn2.get(part, None)
             for w in range(n_weeks):
                 wk = week_starts[w]
                 dyn_adj = 0.0
@@ -160,6 +176,10 @@ def load_base_data(version: int = 3):
                     dyn_adj += dyn_t['bump'] + (dyn_t['step'] if w >= STEP_WEEK else 0.0)
                 if dyn_p:
                     dyn_adj += dyn_p['bump'] + (dyn_p['step'] if w >= STEP_WEEK else 0.0)
+                if dyn_t2:
+                    dyn_adj += dyn_t2['step'] if w >= STEP_WEEK2 else 0.0
+                if dyn_p2:
+                    dyn_adj += dyn_p2['step'] if w >= STEP_WEEK2 else 0.0
                 for _ in range(np.random.randint(1, 4)):
                     eff = (start_lvl + slope * w + type_offset[ttype]
                            + tool_off + np.random.normal(0, 2.0) + dyn_adj
@@ -281,9 +301,9 @@ def performance_status_from_eff(ct_eff_wt):
     if pd.isna(ct_eff_wt):
         return 'Within'
     elif ct_eff_wt > FAST_THRESHOLD:
-        return 'Fast'
+        return 'Slow'   # CTE > 105% → running slow relative to expected
     elif ct_eff_wt < SLOW_THRESHOLD:
-        return 'Slow'
+        return 'Fast'   # CTE < 95% → running fast relative to expected
     else:
         return 'Within'
 
@@ -424,8 +444,8 @@ def generate_ranking_table_data(df, col):
         agg = agg[col_order]
 
     agg['Performance Status'] = agg['Overall Efficiency %'].apply(
-        lambda x: 'Fast' if pd.notna(x) and x > FAST_THRESHOLD
-        else ('Slow' if pd.notna(x) and x < SLOW_THRESHOLD else 'Within')
+        lambda x: 'Slow' if pd.notna(x) and x > FAST_THRESHOLD
+        else ('Fast' if pd.notna(x) and x < SLOW_THRESHOLD else 'Within')
     )
     # Executive risk overlay (does not alter any existing column).
     agg['Risk Status'] = agg['Overall Efficiency %'].apply(classify_risk)
