@@ -311,7 +311,13 @@ with level1:
         if rank.empty:
             st.info("No data available.")
             return
-        if 'Overall Efficiency %' in rank.columns:
+        if 'Overall Efficiency %' in rank.columns and 'Risk Status' in rank.columns:
+            _ar = rank[rank['Risk Status'] == 'At Risk'].sort_values('Overall Efficiency %', ascending=False)
+            _gd = rank[rank['Risk Status'] != 'At Risk'].sort_values(
+                by='Overall Efficiency %', key=lambda x: abs(x - 100), ascending=True
+            )
+            rank = pd.concat([_ar, _gd], ignore_index=True)
+        elif 'Overall Efficiency %' in rank.columns:
             rank = rank.sort_values('Overall Efficiency %', ascending=True)
         top = st.columns([3, 1])
         with top[0]:
@@ -468,6 +474,40 @@ with level3:
         # --- Overview ---
         summ = core.risk_summary(view_df, dim)
         eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
+        if not eff.empty:
+            eff = eff.copy()
+            eff['Performance Status'] = eff['Efficiency_%'].apply(core.performance_status_from_eff)
+
+        # Fastest / Slowest Performer widgets
+        if not eff.empty:
+            fastest = eff.loc[eff['Efficiency_%'].idxmax()]
+            slowest = eff.loc[eff['Efficiency_%'].idxmin()]
+            pw1, pw2 = st.columns(2)
+            with pw1:
+                fc = STATUS_COLORS.get(fastest['Performance Status'], GREY)
+                st.markdown(f"""
+<div style="background:#1a1d26;border:1px solid #2d3748;border-radius:10px;
+     padding:16px 20px;margin-bottom:12px;">
+  <div style="color:#94a3b8;font-size:.82rem;font-weight:600;
+       letter-spacing:.5px;margin-bottom:6px;">FASTEST PERFORMER</div>
+  <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;
+       margin-bottom:4px;">{fastest[dim]}</div>
+  <div style="color:{fc};font-size:1.6rem;font-weight:800;">
+       {fastest['Efficiency_%']:.1f}%</div>
+</div>""", unsafe_allow_html=True)
+            with pw2:
+                sc = STATUS_COLORS.get(slowest['Performance Status'], GREY)
+                st.markdown(f"""
+<div style="background:#1a1d26;border:1px solid #2d3748;border-radius:10px;
+     padding:16px 20px;margin-bottom:12px;">
+  <div style="color:#94a3b8;font-size:.82rem;font-weight:600;
+       letter-spacing:.5px;margin-bottom:6px;">SLOWEST PERFORMER</div>
+  <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;
+       margin-bottom:4px;">{slowest[dim]}</div>
+  <div style="color:{sc};font-size:1.6rem;font-weight:800;">
+       {slowest['Efficiency_%']:.1f}%</div>
+</div>""", unsafe_allow_html=True)
+
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(f"Total {dim}s", f"{summ['total']:,}")
         m2.metric("At Risk", f"{summ['at_risk']:,}")
@@ -479,20 +519,34 @@ with level3:
 
         if not eff.empty:
             bar = go.Figure()
-            colors = [RED if r == "At Risk" else GREEN for r in eff['Risk Status']]
-            bar.add_trace(go.Bar(
-                x=eff[dim], y=eff['Efficiency_%'], marker_color=colors,
-                text=eff['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
-                hovertemplate="%{x}<br>Efficiency: %{y:.2f}%<extra></extra>",
-            ))
-            bar = threshold_line(bar, core.RISK_THRESHOLD, f"At-Risk line ({core.RISK_THRESHOLD:.0f}%)")
+            for status, color in [('Fast', RED), ('Within', GREEN), ('Slow', YELLOW)]:
+                sub = eff[eff['Performance Status'] == status]
+                if not sub.empty:
+                    bar.add_trace(go.Bar(
+                        name=status,
+                        x=sub[dim], y=sub['Efficiency_%'],
+                        marker_color=color,
+                        text=sub['Efficiency_%'], texttemplate="%{text:.1f}%",
+                        textposition="outside",
+                        customdata=np.array([[s] for s in sub['Performance Status']]),
+                        hovertemplate=(
+                            "<b>%{x}</b><br>"
+                            "CTE: %{y:.2f}%<br>"
+                            "Category: %{customdata[0]}"
+                            "<extra></extra>"
+                        ),
+                    ))
             bar.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 height=400, margin=dict(l=10, r=20, t=30, b=10),
-                xaxis=dict(type="category", showgrid=False, tickfont=dict(color="#e2e8f0")),
+                xaxis=dict(type="category",
+                           categoryorder='array', categoryarray=list(eff[dim]),
+                           showgrid=False, tickfont=dict(color="#e2e8f0")),
                 yaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
                            tickfont=dict(color="#94a3b8")),
-                font=dict(color="#e2e8f0"), showlegend=False,
+                font=dict(color="#e2e8f0"), showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                barmode='overlay',
             )
             st.plotly_chart(bar, use_container_width=True, key=f"ov_bar_{keyns}")
 
@@ -556,7 +610,13 @@ with level3:
         if rank.empty:
             st.info("No data available.")
             return
-        if 'Overall Efficiency %' in rank.columns:
+        if 'Overall Efficiency %' in rank.columns and 'Risk Status' in rank.columns:
+            _ar = rank[rank['Risk Status'] == 'At Risk'].sort_values('Overall Efficiency %', ascending=False)
+            _gd = rank[rank['Risk Status'] != 'At Risk'].sort_values(
+                by='Overall Efficiency %', key=lambda x: abs(x - 100), ascending=True
+            )
+            rank = pd.concat([_ar, _gd], ignore_index=True)
+        elif 'Overall Efficiency %' in rank.columns:
             rank = rank.sort_values('Overall Efficiency %', ascending=True)
         top = st.columns([3, 1])
         with top[0]:
