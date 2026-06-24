@@ -81,7 +81,7 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data()
+base_df = core.load_base_data(version=3)
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
@@ -108,21 +108,6 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Financial Parameters")
 labor_rate = st.sidebar.number_input("Labor Rate ($/hour)", min_value=0.0, value=40.0, step=1.0)
 machine_rate = st.sidebar.number_input("Machine Rate ($/hour)", min_value=0.0, value=180.0, step=1.0)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Risk Rule")
-risk_threshold = st.sidebar.slider(
-    "At-Risk threshold (Efficiency %)", min_value=50.0, max_value=110.0,
-    value=core.RISK_THRESHOLD, step=1.0,
-    help="Entities with Cycle Time Efficiency below this value are flagged 'At Risk'. "
-         "Default is 80% per the executive spec.",
-)
-core.RISK_THRESHOLD = risk_threshold  # propagate to all core helpers
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Trend Granularity")
-gran_label = st.sidebar.radio("Bucket", ["Daily", "Weekly", "Monthly"], index=1)
-FREQ = {"Daily": "D", "Weekly": "W", "Monthly": "M"}[gran_label]
 
 # ---- Build current & previous-period slices (same financial transform) -----
 def date_slice(df, s, e):
@@ -290,6 +275,12 @@ def threshold_line(fig, y, text):
     return fig
 
 
+def _bucket_label(bucket_ts, freq):
+    if freq == 'M':
+        return bucket_ts.strftime('%b %Y')
+    return f"Q{(bucket_ts.month - 1) // 3 + 1} {bucket_ts.year}"
+
+
 # ==========================================================================
 # HEADER
 # ==========================================================================
@@ -297,26 +288,31 @@ st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashbo
 st.markdown(
     f'<div class="dash-sub">Period: <b>{period_label}</b> &nbsp;|&nbsp; '
     f'Labor ${labor_rate:.0f}/hr &middot; Machine ${machine_rate:.0f}/hr &nbsp;|&nbsp; '
-    f'At-Risk rule: Slow (&gt;105%) or Fast (&lt;95%) &nbsp;&middot;&nbsp; Within (95–105%) = Good &nbsp;|&nbsp; '
+    f'At Risk: Slow (&gt;105% Cycle Time Efficiency) or Fast (&lt;95% Cycle Time Efficiency), '
+    f'Good: Within (95%–105% Cycle Time Efficiency) &nbsp;|&nbsp; '
     f'Records in view: {len(current_df):,}</div>',
     unsafe_allow_html=True,
 )
 
 level1, level2, level3 = st.tabs([
-    "Executive Summary", "Trend Analysis", "Granular Analysis",
+    "Executive Summary", "Trend Analysis", "Full Ranking and Details",
 ])
 
 # ==========================================================================
 # LEVEL 1 — EXECUTIVE OVERVIEW
 # ==========================================================================
 with level1:
+    _dlg_plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
+
     @st.dialog("Detailed Table", width="large")
     def all_entities_dialog(dim):
-        st.markdown(f"### All {dim}s — Detailed Table")
+        st.markdown(f"### All {_dlg_plural[dim]}")
         rank = core.generate_ranking_table_data(current_df, dim)
         if rank.empty:
             st.info("No data available.")
             return
+        if 'Overall Efficiency %' in rank.columns:
+            rank = rank.sort_values('Overall Efficiency %', ascending=True)
         top = st.columns([3, 1])
         with top[0]:
             rv = search_box(rank, f"dlg_{dim}")
@@ -328,7 +324,6 @@ with level1:
     dims = [("Supplier", "Supplier"),
             ("Tooling Type", "Tooling Type"),
             ("Part", "Part")]
-    plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
 
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
@@ -336,7 +331,7 @@ with level1:
             kpi_card(title,
                      core.risk_summary(current_df, dim),
                      core.risk_summary(previous_df, dim))
-            if st.button(f"View all {plural[dim]}  →", key=f"cardbtn_{dim}",
+            if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
                 all_entities_dialog(dim)
 
@@ -366,11 +361,6 @@ with level2:
     _d = trend_df.copy()
     if not _d.empty:
         _d['bucket'] = _d['Date'].dt.to_period(trend_freq).dt.start_time
-
-    def _bucket_label(bucket_ts, freq):
-        if freq == 'M':
-            return bucket_ts.strftime('%b %Y')
-        return f"Q{(bucket_ts.month - 1) // 3 + 1} {bucket_ts.year}"
 
     trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
 
@@ -459,10 +449,9 @@ with level2:
                 st.info(f"No at-risk data available for {label}.")
 
 # ==========================================================================
-# LEVEL 3 — GRANULAR ANALYSIS  (cascading filters + reusable drill-down)
+# LEVEL 3 — FULL RANKING AND DETAILS
 # ==========================================================================
 with level3:
-    st.markdown('<div class="section-title">Granular Analysis</div>', unsafe_allow_html=True)
     st.markdown(
         "<div class='legend-note'>Use the <b>Master Filter</b> in the sidebar "
         "(OEM Business Division, Region, Supplier, Toolmaker, Plant, Tooling Type, "
@@ -475,103 +464,132 @@ with level3:
         st.warning("No data for the selected filters.")
         st.stop()
 
-    # ---- reusable framework: Overview / Trend / Detailed Table per dim ------
     def render_dimension_view(view_df, dim, keyns):
-        ov, tr, tbl = st.tabs(["Overview", "Trend", "Detailed Table"])
-
         # --- Overview ---
-        with ov:
-            summ = core.risk_summary(view_df, dim)
-            eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric(f"Total {dim}s", f"{summ['total']:,}")
-            m2.metric("At Risk", f"{summ['at_risk']:,}")
-            m3.metric("% At Risk",
-                      f"{summ['pct_at_risk']:.1f}%" if summ['pct_at_risk'] is not None else "—")
-            overall = core.calc_weighted_eff(view_df)
-            m4.metric("Overall CT Efficiency",
-                      f"{overall:.1f}%" if pd.notna(overall) else "N/A")
+        summ = core.risk_summary(view_df, dim)
+        eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(f"Total {dim}s", f"{summ['total']:,}")
+        m2.metric("At Risk", f"{summ['at_risk']:,}")
+        m3.metric("% At Risk",
+                  f"{summ['pct_at_risk']:.1f}%" if summ['pct_at_risk'] is not None else "—")
+        overall = core.calc_weighted_eff(view_df)
+        m4.metric("Overall CT Efficiency",
+                  f"{overall:.1f}%" if pd.notna(overall) else "N/A")
 
-            if not eff.empty:
-                bar = go.Figure()
-                colors = [RED if r == "At Risk" else GREEN for r in eff['Risk Status']]
-                bar.add_trace(go.Bar(
-                    x=eff[dim], y=eff['Efficiency_%'], marker_color=colors,
-                    text=eff['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
-                    hovertemplate="%{x}<br>Efficiency: %{y:.2f}%<extra></extra>",
-                ))
-                bar = threshold_line(bar, risk_threshold, f"At-Risk line ({risk_threshold:.0f}%)")
-                bar.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    height=400, margin=dict(l=10, r=20, t=30, b=10),
-                    xaxis=dict(type="category", showgrid=False, tickfont=dict(color="#e2e8f0")),
-                    yaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
-                               tickfont=dict(color="#94a3b8")),
-                    font=dict(color="#e2e8f0"), showlegend=False,
-                )
-                st.plotly_chart(bar, use_container_width=True, key=f"ov_bar_{keyns}")
+        if not eff.empty:
+            bar = go.Figure()
+            colors = [RED if r == "At Risk" else GREEN for r in eff['Risk Status']]
+            bar.add_trace(go.Bar(
+                x=eff[dim], y=eff['Efficiency_%'], marker_color=colors,
+                text=eff['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
+                hovertemplate="%{x}<br>Efficiency: %{y:.2f}%<extra></extra>",
+            ))
+            bar = threshold_line(bar, core.RISK_THRESHOLD, f"At-Risk line ({core.RISK_THRESHOLD:.0f}%)")
+            bar.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=400, margin=dict(l=10, r=20, t=30, b=10),
+                xaxis=dict(type="category", showgrid=False, tickfont=dict(color="#e2e8f0")),
+                yaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
+                           tickfont=dict(color="#94a3b8")),
+                font=dict(color="#e2e8f0"), showlegend=False,
+            )
+            st.plotly_chart(bar, use_container_width=True, key=f"ov_bar_{keyns}")
 
         # --- Trend ---
-        with tr:
-            t = core.risk_trend(view_df, dim, FREQ)
-            if t.empty:
-                st.info("Not enough dated data to plot a trend.")
+        st.markdown('<div class="section-title">Trend</div>', unsafe_allow_html=True)
+        gran_view = st.radio(
+            "View", ["Month to Month", "Quarter to Quarter"],
+            horizontal=True, key=f"gran_view_{keyns}",
+        )
+        gran_freq = 'M' if gran_view == "Month to Month" else 'Q'
+
+        _vd = view_df.copy()
+        if not _vd.empty:
+            _vd['bucket'] = _vd['Date'].dt.to_period(gran_freq).dt.start_time
+            cte_g = (
+                _vd.groupby('bucket')
+                   .agg(Expected_Hours=('Expected_Hours', 'sum'),
+                        Used_Hours=('Used_Hours', 'sum'))
+                   .reset_index()
+            )
+            cte_g['CTE'] = np.where(cte_g['Used_Hours'] > 0,
+                                    cte_g['Expected_Hours'] / cte_g['Used_Hours'] * 100,
+                                    np.nan)
+            cte_g = cte_g.dropna(subset=['CTE']).sort_values('bucket')
+            cte_g['label'] = cte_g['bucket'].apply(lambda x: _bucket_label(x, gran_freq))
+        else:
+            cte_g = pd.DataFrame(columns=['bucket', 'CTE', 'label', 'Expected_Hours', 'Used_Hours'])
+
+        if not cte_g.empty:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=cte_g['label'], y=cte_g['CTE'],
+                mode="lines+markers", name="Cycle Time Efficiency",
+                line=dict(color=GREY, width=2.5), marker=dict(size=6),
+                customdata=np.stack([cte_g['Expected_Hours'], cte_g['Used_Hours']], axis=-1),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "CTE: %{y:.1f}%<br>"
+                    "Expected Hours: %{customdata[0]:,.1f}<br>"
+                    "Used Hours: %{customdata[1]:,.1f}"
+                    "<extra></extra>"
+                ),
+            ))
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=360, margin=dict(l=10, r=20, t=20, b=10),
+                xaxis=dict(type='category', showgrid=False, tickfont=dict(color="#94a3b8")),
+                yaxis=dict(showgrid=True, gridcolor="#334155",
+                           title="Cycle Time Efficiency (%)",
+                           tickfont=dict(color="#94a3b8")),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                font=dict(color="#e2e8f0"),
+            )
+            st.plotly_chart(fig, use_container_width=True, key=f"tr_{keyns}")
+        else:
+            st.info("Not enough dated data to plot a trend.")
+
+        # --- Detailed Table ---
+        st.markdown('<div class="section-title">Detailed Table</div>', unsafe_allow_html=True)
+        rank = core.generate_ranking_table_data(view_df, dim)
+        if rank.empty:
+            st.info("No data available.")
+            return
+        if 'Overall Efficiency %' in rank.columns:
+            rank = rank.sort_values('Overall Efficiency %', ascending=True)
+        top = st.columns([3, 1])
+        with top[0]:
+            rank_view = search_box(rank, f"rank_{keyns}")
+        with top[1]:
+            st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+            download_csv(rank_view, "Export CSV", f"{dim}_summary.csv", f"rank_{keyns}")
+        st.dataframe(style_table(rank_view, RANK_FMT),
+                     use_container_width=True, hide_index=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        pick = st.selectbox(f"Drill into a {dim} (Tooling-level breakdown):",
+                            ["(No Selection)"] + rank[dim].tolist(), key=f"pick_{keyns}")
+        if pick != "(No Selection)":
+            sub = view_df[view_df[dim] == pick]
+            rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label)
+                    for n, g in sub.groupby("Tooling")]
+            if rows:
+                det = pd.DataFrame(rows).sort_values("CT Weighted Average Efficiency")
+                det = det[[c for c in core.COMPREHENSIVE_TOOLING_COLS if c in det.columns]]
+                dc = st.columns([3, 1])
+                with dc[0]:
+                    det_view = search_box(det, f"det_{keyns}")
+                with dc[1]:
+                    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
+                    download_csv(det_view, "Export CSV",
+                                 f"{dim}_{pick}_toolings.csv", f"det_{keyns}")
+                st.dataframe(style_table(det_view, DETAIL_FMT),
+                             use_container_width=True, hide_index=True)
             else:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=t['bucket'], y=t['at_risk'], mode="lines+markers",
-                                         name="At Risk", line=dict(color=RED, width=2.5)))
-                fig.add_trace(go.Scatter(x=t['bucket'], y=t['total'], mode="lines+markers",
-                                         name="Total", line=dict(color=GREY, width=2, dash="dot")))
-                fig.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    height=360, margin=dict(l=10, r=20, t=20, b=10),
-                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8")),
-                    yaxis=dict(showgrid=True, gridcolor="#334155", title=f"{dim}s",
-                               tickfont=dict(color="#94a3b8")),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    font=dict(color="#e2e8f0"),
-                )
-                st.plotly_chart(fig, use_container_width=True, key=f"tr_{keyns}")
+                st.info("No tooling-level detail available.")
 
-        # --- Detailed Table (entity-level ranking columns, preserved) ---
-        with tbl:
-            rank = core.generate_ranking_table_data(view_df, dim)
-            if rank.empty:
-                st.info("No data available.")
-                return
-            top = st.columns([3, 1])
-            with top[0]:
-                rank_view = search_box(rank, f"rank_{keyns}")
-            with top[1]:
-                st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-                download_csv(rank_view, "Export CSV", f"{dim}_summary.csv", f"rank_{keyns}")
-            st.dataframe(style_table(rank_view, RANK_FMT),
-                         use_container_width=True, hide_index=True)
-
-            # drill into a single entity -> per-Tooling comprehensive breakdown
-            st.markdown("<br>", unsafe_allow_html=True)
-            pick = st.selectbox(f"Drill into a {dim} (Tooling-level breakdown):",
-                                ["(No Selection)"] + rank[dim].tolist(), key=f"pick_{keyns}")
-            if pick != "(No Selection)":
-                sub = view_df[view_df[dim] == pick]
-                rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label)
-                        for n, g in sub.groupby("Tooling")]
-                if rows:
-                    det = pd.DataFrame(rows).sort_values("CT Weighted Average Efficiency")
-                    det = det[[c for c in core.COMPREHENSIVE_TOOLING_COLS if c in det.columns]]
-                    dc = st.columns([3, 1])
-                    with dc[0]:
-                        det_view = search_box(det, f"det_{keyns}")
-                    with dc[1]:
-                        st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-                        download_csv(det_view, "Export CSV",
-                                     f"{dim}_{pick}_toolings.csv", f"det_{keyns}")
-                    st.dataframe(style_table(det_view, DETAIL_FMT),
-                                 use_container_width=True, hide_index=True)
-                else:
-                    st.info("No tooling-level detail available.")
-
-    sup_tab, tt_tab, part_tab = st.tabs(["Supplier View", "Tooling Type View", "Part View"])
+    sup_tab, tt_tab, part_tab = st.tabs(["All Suppliers", "All Tooling Types", "All Parts"])
     with sup_tab:
         render_dimension_view(gran_df, "Supplier", "supplier")
     with tt_tab:

@@ -45,7 +45,7 @@ BASELINE_RATE = 220.0
 # 1. DATA LOADING  (verbatim from original, unchanged)
 # ==========================================================================
 @st.cache_data
-def load_base_data():
+def load_base_data(version: int = 3):
     """SCENARIO-DRIVEN demo data.
 
     Generates a realistic supply-chain dataset that spans the full performance
