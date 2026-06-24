@@ -147,8 +147,12 @@ def load_base_data(version: int = 3):
     # week 44) to Good (~97% at week 49) without any step, so Supplier
     # at-risk count DECREASES current vs previous.
     STEP_WEEK2 = 48
-    type_dyn2 = {'CNC Machining': {'step': -10.0}}
-    part_dyn2 = {'Part-015': {'step': -10.0}}
+    type_dyn2 = {'CNC Machining': {'step': -10.0}}   # Tooling Type at-risk INCREASES in current
+    part_dyn2 = {'Part-015': {'step': -10.0}}         # Part at-risk INCREASES in current
+    # Wistron (72, slope=0.5): natural eff at week 44≈94% (At-Risk Fast), week 48≈96% (Good).
+    # Boost by +3 pp from week 48 ensures it is unambiguously Good in the current window and
+    # unambiguously At-Risk in the previous window → Supplier at-risk DECREASES.
+    sup_dyn2 = {'Wistron': {'step': 3.0}}
 
     records = []
     tool_counter = 1
@@ -169,6 +173,7 @@ def load_base_data(version: int = 3):
             dyn_p = part_dyn.get(part, None)
             dyn_t2 = type_dyn2.get(ttype, None)
             dyn_p2 = part_dyn2.get(part, None)
+            dyn_s2 = sup_dyn2.get(sup, None)
             for w in range(n_weeks):
                 wk = week_starts[w]
                 dyn_adj = 0.0
@@ -180,6 +185,8 @@ def load_base_data(version: int = 3):
                     dyn_adj += dyn_t2['step'] if w >= STEP_WEEK2 else 0.0
                 if dyn_p2:
                     dyn_adj += dyn_p2['step'] if w >= STEP_WEEK2 else 0.0
+                if dyn_s2:
+                    dyn_adj += dyn_s2['step'] if w >= STEP_WEEK2 else 0.0
                 for _ in range(np.random.randint(1, 4)):
                     eff = (start_lvl + slope * w + type_offset[ttype]
                            + tool_off + np.random.normal(0, 2.0) + dyn_adj

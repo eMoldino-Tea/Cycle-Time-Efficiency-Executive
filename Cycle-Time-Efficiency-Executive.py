@@ -27,6 +27,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import timedelta
 
 import cte_core as core
@@ -81,7 +82,7 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data(version=4)
+base_df = core.load_base_data(version=5)
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
@@ -326,34 +327,31 @@ level1, level2, level3 = st.tabs([
     "Executive Summary", "Trend Analysis", "Full Ranking and Details",
 ])
 
+# Navigation: fires once after a "View All" button click to switch tabs programmatically.
+# Placed outside all tab blocks so the iframe renders visible regardless of active tab.
+_nav_target = st.session_state.pop('_nav_l3', None)
+if _nav_target is not None:
+    _sub_idx = _nav_target  # 0=Suppliers, 1=Tooling Types, 2=Parts
+    components.html(f"""
+<script>
+(function() {{
+    function click(idx, cb) {{
+        var t = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+        if (t && t[idx]) {{ t[idx].click(); if (cb) setTimeout(cb, 600); }}
+    }}
+    // Step 1: switch to "Full Ranking and Details" (main tab index 2)
+    // Step 2: after 600 ms switch to the sub-tab (indices 3, 4, 5)
+    setTimeout(function() {{ click(2, function() {{ click(3 + {_sub_idx}, null); }}); }}, 150);
+}})();
+</script>
+""", height=0)
+
 # ==========================================================================
 # LEVEL 1 — EXECUTIVE OVERVIEW
 # ==========================================================================
 with level1:
     _dlg_plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
-
-    @st.dialog("Detailed Table", width="large")
-    def all_entities_dialog(dim):
-        st.markdown(f"### All {_dlg_plural[dim]}")
-        rank = core.generate_ranking_table_data(current_df, dim)
-        if rank.empty:
-            st.info("No data available.")
-            return
-        if 'Overall Efficiency %' in rank.columns and 'Risk Status' in rank.columns:
-            _ar = rank[rank['Risk Status'] == 'At Risk'].sort_values('Overall Efficiency %', ascending=False)
-            _gd = rank[rank['Risk Status'] != 'At Risk'].sort_values(
-                by='Overall Efficiency %', key=lambda x: abs(x - 100), ascending=True
-            )
-            rank = pd.concat([_ar, _gd], ignore_index=True)
-        elif 'Overall Efficiency %' in rank.columns:
-            rank = rank.sort_values('Overall Efficiency %', ascending=True)
-        top = st.columns([3, 1])
-        with top[0]:
-            rv = search_box(rank, f"dlg_{dim}")
-        with top[1]:
-            st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-            download_csv(rv, "Export CSV", f"all_{dim}.csv", f"dlg_{dim}")
-        st.dataframe(style_table(rv, RANK_FMT), use_container_width=True, hide_index=True)
+    _dim_tab_idx = {"Supplier": 0, "Tooling Type": 1, "Part": 2}
 
     dims = [("Supplier", "Supplier"),
             ("Tooling Type", "Tooling Type"),
@@ -367,11 +365,12 @@ with level1:
                      core.risk_summary(previous_df, dim))
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
-                all_entities_dialog(dim)
+                st.session_state['_nav_l3'] = _dim_tab_idx[dim]
+                st.rerun()
 
     st.markdown(
-        '<div class="legend-note">Click a card to open its detailed table. '
-        'Delta compares the at-risk rate against the equally-sized period '
+        '<div class="legend-note">Clicking a card navigates to the Full Ranking and Details tab. '
+        'Delta compares the at-risk count against the equally-sized period '
         'immediately before the selected range.</div>',
         unsafe_allow_html=True,
     )
