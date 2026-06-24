@@ -480,32 +480,38 @@ with level3:
 
         # Fastest / Slowest Performer widgets
         if not eff.empty:
+            _fin = (view_df.groupby(dim)
+                           .agg(Financial_Gain=('Financial_Gain', 'sum'),
+                                Financial_Loss=('Financial_Loss', 'sum'))
+                           .reset_index())
+            _fin['Net_Financial'] = _fin['Financial_Gain'] - _fin['Financial_Loss']
+            eff = eff.merge(_fin[[dim, 'Net_Financial']], on=dim, how='left')
+            eff['Net_Financial'] = eff['Net_Financial'].fillna(0)
+
             fastest = eff.loc[eff['Efficiency_%'].idxmax()]
             slowest = eff.loc[eff['Efficiency_%'].idxmin()]
+
+            def _fin_label(net):
+                return f"+${net:,.0f} Gained" if net >= 0 else f"-${abs(net):,.0f} Lost"
+
             pw1, pw2 = st.columns(2)
             with pw1:
-                fc = STATUS_COLORS.get(fastest['Performance Status'], GREY)
                 st.markdown(f"""
-<div style="background:#1a1d26;border:1px solid #2d3748;border-radius:10px;
+<div style="background:#1a1d26;border:1px solid #2d3748;
+     border-left:3px solid {GREEN};border-radius:10px;
      padding:16px 20px;margin-bottom:12px;">
-  <div style="color:#94a3b8;font-size:.82rem;font-weight:600;
-       letter-spacing:.5px;margin-bottom:6px;">FASTEST PERFORMER</div>
-  <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;
-       margin-bottom:4px;">{fastest[dim]}</div>
-  <div style="color:{fc};font-size:1.6rem;font-weight:800;">
-       {fastest['Efficiency_%']:.1f}%</div>
+  <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Fastest Performer</div>
+  <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{fastest[dim]}</div>
+  <div style="color:{GREEN};font-size:1rem;font-weight:600;">{fastest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(fastest['Net_Financial'])}</div>
 </div>""", unsafe_allow_html=True)
             with pw2:
-                sc = STATUS_COLORS.get(slowest['Performance Status'], GREY)
                 st.markdown(f"""
-<div style="background:#1a1d26;border:1px solid #2d3748;border-radius:10px;
+<div style="background:#1a1d26;border:1px solid #2d3748;
+     border-left:3px solid {RED};border-radius:10px;
      padding:16px 20px;margin-bottom:12px;">
-  <div style="color:#94a3b8;font-size:.82rem;font-weight:600;
-       letter-spacing:.5px;margin-bottom:6px;">SLOWEST PERFORMER</div>
-  <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;
-       margin-bottom:4px;">{slowest[dim]}</div>
-  <div style="color:{sc};font-size:1.6rem;font-weight:800;">
-       {slowest['Efficiency_%']:.1f}%</div>
+  <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Slowest Performer</div>
+  <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{slowest[dim]}</div>
+  <div style="color:{RED};font-size:1rem;font-weight:600;">{slowest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(slowest['Net_Financial'])}</div>
 </div>""", unsafe_allow_html=True)
 
         m1, m2, m3, m4 = st.columns(4)
