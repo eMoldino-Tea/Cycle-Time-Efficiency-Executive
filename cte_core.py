@@ -160,6 +160,15 @@ def load_base_data(version: int = 3):
         'Celestica': {'step':  -6.0},  # prevents natural Good→AtRisk drift in current window
     }
 
+    # Constant, all-weeks bump so the Full Ranking and Details view has at least
+    # one Slow (>105% CTE) entity per dimension for the Fast/Within/Slow breakdown.
+    # Applied to every week (unlike the STEP_WEEK/STEP_WEEK2 dicts above), so it
+    # shifts both the previous and current 30-day windows equally and does not
+    # disturb the already-tuned Executive Summary trend directions.
+    sup_slow_bump = {'Foxconn': 10.0, 'Jabil': 10.0}
+    type_slow_bump = {'Thermoforming': 20.0}
+    part_slow_bump = {'Part-017': 6.0, 'Part-022': 6.0}
+
     records = []
     tool_counter = 1
     for sup, (start_lvl, slope) in suppliers.items():
@@ -180,9 +189,11 @@ def load_base_data(version: int = 3):
             dyn_t2 = type_dyn2.get(ttype, None)
             dyn_p2 = part_dyn2.get(part, None)
             dyn_s2 = sup_dyn2.get(sup, None)
+            slow_bump = (sup_slow_bump.get(sup, 0.0) + type_slow_bump.get(ttype, 0.0)
+                         + part_slow_bump.get(part, 0.0))
             for w in range(n_weeks):
                 wk = week_starts[w]
-                dyn_adj = 0.0
+                dyn_adj = slow_bump
                 if dyn_t:
                     dyn_adj += dyn_t['bump'] + (dyn_t['step'] if w >= STEP_WEEK else 0.0)
                 if dyn_p:
