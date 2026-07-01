@@ -82,7 +82,7 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data(version=9)
+base_df = core.load_base_data(version=10)
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
