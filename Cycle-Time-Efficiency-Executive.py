@@ -369,6 +369,30 @@ with level1:
             kpi_card(title,
                      core.risk_summary(_kpi_curr, dim),
                      core.risk_summary(_kpi_prev, dim))
+
+            # Fast / Within / Slow breakdown — decomposes the "At Risk" figure
+            # above (Fast+Slow combined) so cost-saving opportunities (Fast) and
+            # quality/process risks (Fast and Slow) can each be read directly,
+            # same logic as the Full Ranking and Details breakdown.
+            _eff = core.entity_efficiency(_kpi_curr, dim)
+            if not _eff.empty:
+                _status_n = _eff['Efficiency_%'].apply(core.performance_status_from_eff).value_counts()
+                _total_n = len(_eff)
+                def _es_pct(n):
+                    return f"{n / _total_n * 100:.1f}%" if _total_n else "—"
+                bd1, bd2, bd3 = st.columns(3)
+                for _bcol, _label, _color in [(bd1, 'Fast', RED), (bd2, 'Within', GREEN), (bd3, 'Slow', YELLOW)]:
+                    _n = int(_status_n.get(_label, 0))
+                    with _bcol:
+                        st.markdown(f"""
+<div style="background:#1a1d26;border:1px solid #2d3748;border-left:3px solid {_color};
+     border-radius:10px;padding:10px 14px;margin-bottom:12px;">
+  <div style="color:#94a3b8;font-size:.78rem;margin-bottom:3px;">{_label}</div>
+  <div style="color:{_color};font-size:1.1rem;font-weight:700;">{_n:,}
+    <span style="color:#94a3b8;font-size:.78rem;font-weight:400;">({_es_pct(_n)})</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
                 st.session_state['_nav_l3'] = _dim_tab_idx[dim]
