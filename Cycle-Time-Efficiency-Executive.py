@@ -82,14 +82,14 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data(version=6)
+base_df = core.load_base_data(version=9)
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
 time_range = st.sidebar.radio(
     "Select range",
     ["Last 7 Days", "Last 30 Days", "Last 90 Days", "Custom Range"],
-    index=1,  # default 30d so a comparable previous period exists
+    index=2,  # default 90d
 )
 
 if time_range == "Last 7 Days":
@@ -187,9 +187,8 @@ def kpi_card(name, summary, prev_summary):
         <span class="kpi-name">{name}</span>
       </div>
       <div class="kpi-big" style="color:{risk_color};">{at_risk:,}</div>
-      <div class="kpi-unit">at risk &nbsp;&middot;&nbsp; {pct_txt} of {total:,} total</div>
+      <div class="kpi-unit">At-Risk {noun}</div>
       <div class="kpi-row"><span class="l">Total {noun}</span><span class="v">{total:,}</span></div>
-      <div class="kpi-row"><span class="l">At Risk</span><span class="v">{at_risk:,}</span></div>
       <div class="kpi-row"><span class="l">% At Risk</span><span class="v">{pct_txt}</span></div>
       <div class="kpi-delta">{delta_html}</div>
     </div>
@@ -357,12 +356,19 @@ with level1:
             ("Tooling Type", "Tooling Type"),
             ("Part", "Part")]
 
+    # KPI deltas always use the last 30 days of data vs the 30 days before that,
+    # independent of the date range selector, so the comparison is always valid.
+    _kpi_curr = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=30), max_date), labor_rate, machine_rate))
+    _kpi_prev = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
+
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
         with col:
             kpi_card(title,
-                     core.risk_summary(current_df, dim),
-                     core.risk_summary(previous_df, dim))
+                     core.risk_summary(_kpi_curr, dim),
+                     core.risk_summary(_kpi_prev, dim))
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
                 st.session_state['_nav_l3'] = _dim_tab_idx[dim]
@@ -370,8 +376,7 @@ with level1:
 
     st.markdown(
         '<div class="legend-note">Clicking a card navigates to the Full Ranking and Details tab. '
-        'Delta compares the at-risk count against the equally-sized period '
-        'immediately before the selected range.</div>',
+        'Delta compares the at-risk count against the prior 30-day period (last 30 days vs previous 30 days).</div>',
         unsafe_allow_html=True,
     )
 

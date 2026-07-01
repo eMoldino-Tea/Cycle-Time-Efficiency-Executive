@@ -133,31 +133,31 @@ def load_base_data(version: int = 3):
     # the current window on the other. This gives the Executive Summary a real
     # period-over-period delta for Tooling Type and Part (not just Supplier).
     STEP_WEEK = 22
-    type_dyn = {'Blow Molding': {'bump': 4.0, 'step': -15.0}}   # good -> at risk
+    type_dyn = {
+        'Blow Molding':       {'bump': 4.0,  'step': -15.0},  # good -> at risk (original)
+        'Compression Molding':{'bump': 0.0,  'step':  -8.0},  # pulls CM to Good in weeks 22-47
+    }
     part_dyn = {'Part-025': {'bump': 4.0, 'step': -15.0}}       # good -> at risk
 
-    # Second step near the boundary between the 30-60 day window (previous
-    # period) and the 0-30 day window (current period) for the default
-    # "Last 30 Days" selector. Weeks 48-52 = current; weeks 44-47 = previous.
-    # - CNC Machining: borderline-Good tools (e.g. Aisin Tool ~102%) drop
-    #   10 pp at week 48, crossing into Fast/At-Risk in the current period
-    #   → Tooling Type at-risk count INCREASES current vs previous.
-    # - Part-015: same mechanism for the Part dimension.
-    # Wistron (72, slope=0.5) naturally crosses from At-Risk Fast (~94% at
-    # week 44) to Good (~97% at week 49) without any step, so Supplier
-    # at-risk count DECREASES current vs previous.
+    # Second step at STEP_WEEK2 (week 48+) controls the 0-30 day (current) vs
+    # 30-60 day (previous) KPI comparison windows.
+    # - CNC Machining -10 pp: pushes CNC At-Risk in current → Tooling Type count up.
+    # - Compression Molding +8 pp: cancels the STEP_WEEK -8 drag → CM returns to
+    #   natural ~110% (At-Risk Slow) in current after being Good in previous.
+    #   Net: Tooling Type at-risk INCREASES prev=7 → curr=8 (RED ↑).
+    # - Part-015 -10 pp: Part at-risk INCREASES prev → curr (RED ↑).
+    # - Pegatron -10 pp: prev ~108% At-Risk → curr ~102% Good → Supplier DECREASES (GREEN ↓).
+    # - Sanmina  -6 pp: prevents a new Slow At-Risk entry in current window.
     STEP_WEEK2 = 48
-    type_dyn2 = {'CNC Machining': {'step': -10.0}}   # Tooling Type at-risk INCREASES in current
+    type_dyn2 = {
+        'CNC Machining':      {'step': -10.0},  # Tooling Type At-Risk increases in current
+        'Compression Molding':{'step':  +8.0},  # restores CM to At-Risk in current (cancels STEP_WEEK)
+    }
     part_dyn2 = {'Part-015': {'step': -10.0}}         # Part at-risk INCREASES in current
-    # Wistron (72, slope=0.5): natural eff at week 44≈94% (At-Risk Fast), week 48≈96% (Good).
-    # Boost by +3 pp from week 48 ensures it is unambiguously Good in the current window and
-    # unambiguously At-Risk in the previous window → Supplier at-risk count DECREASES.
-    # Sanmina (77, slope=0.6): without adjustment week 48≈105.8% (Slow, At-Risk), which would
-    # add a new at-risk supplier in the current window and cancel Wistron's improvement.
-    # Step of -6 pp keeps it at ≈100% in the current window → stays Good → net decrease holds.
     sup_dyn2 = {
-        'Wistron': {'step':  3.0},
-        'Sanmina': {'step': -6.0},
+        'Pegatron':  {'step': -10.0},  # prev At-Risk (106.6%) → curr Good (~101%) → decrease ✓
+        'Wistron':   {'step':  -3.0},  # prevents natural Good→AtRisk drift in current window
+        'Celestica': {'step':  -6.0},  # prevents natural Good→AtRisk drift in current window
     }
 
     records = []
