@@ -420,7 +420,10 @@ with level1:
         _n_pick = min(3, len(_eff_sorted))
         _top = _eff_sorted.head(_n_pick)
         _bottom = _eff_sorted.tail(_n_pick)
-        _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%')
+        _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
+        # Diverging bars around the 100% CT Efficiency target: entities below
+        # target (Fast) extend left, entities above target (Slow) extend right.
+        _picked['Deviation'] = _picked['Efficiency_%'] - 100.0
 
         st.markdown(
             f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
@@ -431,7 +434,7 @@ with level1:
             _sub = _picked[_picked['Performance Status'] == _status]
             if not _sub.empty:
                 _perf_fig.add_trace(go.Bar(
-                    name=_status, x=_sub['Efficiency_%'], y=_sub[dim], orientation='h',
+                    name=_status, x=_sub['Deviation'], y=_sub[dim], orientation='h',
                     marker_color=_color,
                     text=_sub['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
                 ))
@@ -440,8 +443,9 @@ with level1:
             height=320, margin=dict(l=10, r=40, t=30, b=10),
             yaxis=dict(type="category", categoryorder='array', categoryarray=list(_picked[dim]),
                        showgrid=False, tickfont=dict(color="#e2e8f0")),
-            xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
-                       tickfont=dict(color="#94a3b8")),
+            xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency % (Δ from 100% target)",
+                       tickfont=dict(color="#94a3b8"),
+                       zeroline=True, zerolinecolor="#94a3b8", zerolinewidth=1.5),
             font=dict(color="#e2e8f0"), showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
