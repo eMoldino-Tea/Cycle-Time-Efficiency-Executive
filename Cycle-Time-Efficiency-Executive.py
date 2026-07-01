@@ -555,6 +555,27 @@ with level3:
         m4.metric("Overall CT Efficiency",
                   f"{overall:.1f}%" if pd.notna(overall) else "N/A")
 
+        # Fast / Within / Slow breakdown — "At Risk" above is Fast+Slow combined;
+        # this splits it out so cost-saving opportunities (Fast) and quality/process
+        # risks (Fast and Slow) can each be read directly off the same data.
+        if not eff.empty:
+            _status_n = eff['Performance Status'].value_counts()
+            _total_n = len(eff)
+            def _bd_pct(n):
+                return f"{n / _total_n * 100:.1f}%" if _total_n else "—"
+            bd1, bd2, bd3 = st.columns(3)
+            for _col, _label, _color in [(bd1, 'Fast', RED), (bd2, 'Within', GREEN), (bd3, 'Slow', YELLOW)]:
+                _n = int(_status_n.get(_label, 0))
+                with _col:
+                    st.markdown(f"""
+<div style="background:#1a1d26;border:1px solid #2d3748;border-left:3px solid {_color};
+     border-radius:10px;padding:12px 18px;margin-bottom:12px;">
+  <div style="color:#94a3b8;font-size:.82rem;margin-bottom:4px;">{_label}</div>
+  <div style="color:{_color};font-size:1.3rem;font-weight:700;">{_n:,}
+    <span style="color:#94a3b8;font-size:.85rem;font-weight:400;">({_bd_pct(_n)})</span>
+  </div>
+</div>""", unsafe_allow_html=True)
+
         if not eff.empty:
             bar = go.Figure()
             for status, color in [('Fast', RED), ('Within', GREEN), ('Slow', YELLOW)]:
