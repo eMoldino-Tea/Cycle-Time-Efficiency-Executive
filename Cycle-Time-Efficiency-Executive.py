@@ -412,35 +412,23 @@ with level1:
     # Fast / Slow performance chart per dimension — Top 3 fastest + Top 3
     # slowest entities by CTE%, color-coded by Performance Status, with a
     # dropdown below each chart to inspect one entity's detail.
-    # All three charts plot the raw Cycle Time Efficiency % (always positive)
-    # and share one fixed X-axis range, so Supplier, Tooling Type, and Part
-    # efficiency can be compared directly at a glance.
-    _dim_picked = {}
-    _dim_eff_sorted = {}
+    # Each chart is centered on the 100% CT Efficiency target: Fast entities
+    # (< 100%) fall to the left, Slow entities (> 100%) fall to the right.
+    # The X-axis range is computed per dimension (symmetric around 100%), not
+    # shared, so each of the three charts shows its own percentage spread.
     for title, dim in dims:
         _eff = _dim_eff_data.get(title)
         if _eff is None or _eff.empty:
             continue
         _eff_sorted = _eff.sort_values('Efficiency_%', ascending=False)
-        _dim_eff_sorted[title] = _eff_sorted
         _n_pick = min(3, len(_eff_sorted))
         _top = _eff_sorted.head(_n_pick)
         _bottom = _eff_sorted.tail(_n_pick)
         _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
-        _dim_picked[title] = (_picked, _n_pick)
 
-    _all_effs = pd.concat([p['Efficiency_%'] for p, _ in _dim_picked.values()]) if _dim_picked else pd.Series(dtype=float)
-    if not _all_effs.empty:
-        _eff_pad = max(_all_effs.max() - _all_effs.min(), 1.0) * 0.1
-        _shared_x_range = [_all_effs.min() - _eff_pad, _all_effs.max() + _eff_pad]
-    else:
-        _shared_x_range = None
-
-    for title, dim in dims:
-        if title not in _dim_picked:
-            continue
-        _picked, _n_pick = _dim_picked[title]
-        _eff_sorted = _dim_eff_sorted[title]
+        _max_dev = max(100.0 - _picked['Efficiency_%'].min(), _picked['Efficiency_%'].max() - 100.0, 1.0)
+        _pad = _max_dev * 0.15
+        _x_range = [100.0 - _max_dev - _pad, 100.0 + _max_dev + _pad]
 
         st.markdown(
             f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
@@ -455,13 +443,14 @@ with level1:
                     marker_color=_color,
                     text=_sub['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
                 ))
+        _perf_fig.add_vline(x=100, line_width=1.5, line_color="#94a3b8")
         _perf_fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             height=320, margin=dict(l=10, r=40, t=30, b=10),
             yaxis=dict(type="category", categoryorder='array', categoryarray=list(_picked[dim]),
                        showgrid=False, tickfont=dict(color="#e2e8f0")),
             xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
-                       tickfont=dict(color="#94a3b8"), range=_shared_x_range),
+                       tickfont=dict(color="#94a3b8"), range=_x_range),
             font=dict(color="#e2e8f0"), showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
