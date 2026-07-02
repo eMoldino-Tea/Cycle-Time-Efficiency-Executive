@@ -363,8 +363,6 @@ with level1:
     _kpi_prev = apply_master_filters(core.apply_financials(
         date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
 
-    _dim_eff_data = {}  # {title: eff DataFrame with Performance Status}, used by the charts below
-
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
         with col:
@@ -380,7 +378,6 @@ with level1:
             if not _eff.empty:
                 _eff = _eff.copy()
                 _eff['Performance Status'] = _eff['Efficiency_%'].apply(core.performance_status_from_eff)
-                _dim_eff_data[title] = _eff
                 _status_n = _eff['Performance Status'].value_counts()
                 _total_n = len(_eff)
                 def _es_pct(n):
@@ -408,84 +405,6 @@ with level1:
         'Delta compares the at-risk count against the prior 30-day period (last 30 days vs previous 30 days).</div>',
         unsafe_allow_html=True,
     )
-
-    # Fast / Slow performance chart per dimension — Top 3 fastest + Top 3
-    # slowest entities by CTE%, color-coded by Performance Status, with a
-    # dropdown below each chart to inspect one entity's detail.
-    # Each chart is centered on the 100% CT Efficiency target: Fast entities
-    # (< 100%) fall to the left, Slow entities (> 100%) fall to the right.
-    # All three charts share ONE X-axis range (symmetric around 100%, sized
-    # to the widest of the three dimensions' spreads) so Supplier, Tooling
-    # Type, and Part efficiency can be compared directly at a glance.
-    _dim_perf = {}
-    for title, dim in dims:
-        _eff = _dim_eff_data.get(title)
-        if _eff is None or _eff.empty:
-            continue
-        _eff_sorted = _eff.sort_values('Efficiency_%', ascending=False)
-        _n_pick = min(3, len(_eff_sorted))
-        _top = _eff_sorted.head(_n_pick)
-        _bottom = _eff_sorted.tail(_n_pick)
-        _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
-        _max_dev = max(100.0 - _picked['Efficiency_%'].min(), _picked['Efficiency_%'].max() - 100.0, 1.0)
-        _dim_perf[title] = {'picked': _picked, 'n_pick': _n_pick, 'eff_sorted': _eff_sorted, 'max_dev': _max_dev}
-
-    if _dim_perf:
-        _shared_max_dev = max(p['max_dev'] for p in _dim_perf.values())
-        _shared_pad = _shared_max_dev * 0.15
-        _shared_x_range = [100.0 - _shared_max_dev - _shared_pad, 100.0 + _shared_max_dev + _shared_pad]
-    else:
-        _shared_x_range = None
-
-    for title, dim in dims:
-        if title not in _dim_perf:
-            continue
-        _picked = _dim_perf[title]['picked']
-        _n_pick = _dim_perf[title]['n_pick']
-        _eff_sorted = _dim_perf[title]['eff_sorted']
-
-        st.markdown(
-            f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
-            unsafe_allow_html=True,
-        )
-        _perf_fig = go.Figure()
-        for _status, _color in [('Fast', RED), ('Within', GREEN), ('Slow', YELLOW)]:
-            _sub = _picked[_picked['Performance Status'] == _status]
-            if not _sub.empty:
-                _perf_fig.add_trace(go.Bar(
-                    name=_status, x=_sub['Efficiency_%'], y=_sub[dim], orientation='h',
-                    marker_color=_color,
-                    text=_sub['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
-                ))
-        _perf_fig.add_vline(x=100, line_width=1.5, line_color="#94a3b8")
-        _perf_fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=320, margin=dict(l=10, r=40, t=30, b=10),
-            yaxis=dict(type="category", categoryorder='array', categoryarray=list(_picked[dim]),
-                       showgrid=False, tickfont=dict(color="#e2e8f0")),
-            xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
-                       tickfont=dict(color="#94a3b8"), range=_shared_x_range),
-            font=dict(color="#e2e8f0"), showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        st.plotly_chart(_perf_fig, use_container_width=True, key=f"es_perf_{dim}")
-
-        _detail_choice = st.selectbox(
-            f"Select {title} to view details:",
-            options=["(No Selection)"] + list(_eff_sorted[dim]),
-            key=f"es_detail_{dim}",
-        )
-        if _detail_choice != "(No Selection)":
-            _row = _eff_sorted[_eff_sorted[dim] == _detail_choice].iloc[0]
-            _row_color = {'Fast': RED, 'Within': GREEN, 'Slow': YELLOW}[_row['Performance Status']]
-            st.markdown(f"""
-<div style="background:#1a1d26;border:1px solid #2d3748;border-left:3px solid {_row_color};
-     border-radius:10px;padding:14px 20px;margin-bottom:18px;">
-  <div style="color:#e2e8f0;font-size:1.05rem;font-weight:700;margin-bottom:4px;">{_detail_choice}</div>
-  <div style="color:{_row_color};font-size:.95rem;font-weight:600;">
-    {_row['Efficiency_%']:.2f}% CT Efficiency &nbsp;|&nbsp; {_row['Performance Status']}
-  </div>
-</div>""", unsafe_allow_html=True)
 
 # ==========================================================================
 # LEVEL 2 — TREND ANALYSIS
