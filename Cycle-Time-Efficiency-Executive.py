@@ -412,7 +412,7 @@ with level1:
     # Fast / Slow performance chart per dimension — Top 3 fastest + Top 3
     # slowest entities by CTE%, color-coded by Performance Status, with a
     # dropdown below each chart to inspect one entity's detail.
-    # All three charts use the TRUE (unscaled) deviation from the 100% target
+    # All three charts plot the raw Cycle Time Efficiency % (always positive)
     # and share one fixed X-axis range, so Supplier, Tooling Type, and Part
     # efficiency can be compared directly at a glance.
     _dim_picked = {}
@@ -427,15 +427,12 @@ with level1:
         _top = _eff_sorted.head(_n_pick)
         _bottom = _eff_sorted.tail(_n_pick)
         _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
-        # Diverging bars around the 100% CT Efficiency target: entities below
-        # target (Fast) extend left, entities above target (Slow) extend right.
-        _picked['Deviation'] = _picked['Efficiency_%'] - 100.0
         _dim_picked[title] = (_picked, _n_pick)
 
-    _all_devs = pd.concat([p['Deviation'] for p, _ in _dim_picked.values()]) if _dim_picked else pd.Series(dtype=float)
-    if not _all_devs.empty:
-        _dev_pad = max(_all_devs.max() - _all_devs.min(), 1.0) * 0.1
-        _shared_x_range = [_all_devs.min() - _dev_pad, _all_devs.max() + _dev_pad]
+    _all_effs = pd.concat([p['Efficiency_%'] for p, _ in _dim_picked.values()]) if _dim_picked else pd.Series(dtype=float)
+    if not _all_effs.empty:
+        _eff_pad = max(_all_effs.max() - _all_effs.min(), 1.0) * 0.1
+        _shared_x_range = [_all_effs.min() - _eff_pad, _all_effs.max() + _eff_pad]
     else:
         _shared_x_range = None
 
@@ -454,7 +451,7 @@ with level1:
             _sub = _picked[_picked['Performance Status'] == _status]
             if not _sub.empty:
                 _perf_fig.add_trace(go.Bar(
-                    name=_status, x=_sub['Deviation'], y=_sub[dim], orientation='h',
+                    name=_status, x=_sub['Efficiency_%'], y=_sub[dim], orientation='h',
                     marker_color=_color,
                     text=_sub['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
                 ))
@@ -463,9 +460,8 @@ with level1:
             height=320, margin=dict(l=10, r=40, t=30, b=10),
             yaxis=dict(type="category", categoryorder='array', categoryarray=list(_picked[dim]),
                        showgrid=False, tickfont=dict(color="#e2e8f0")),
-            xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency % (Δ from 100% target)",
-                       tickfont=dict(color="#94a3b8"), range=_shared_x_range,
-                       zeroline=True, zerolinecolor="#94a3b8", zerolinewidth=1.5),
+            xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
+                       tickfont=dict(color="#94a3b8"), range=_shared_x_range),
             font=dict(color="#e2e8f0"), showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
