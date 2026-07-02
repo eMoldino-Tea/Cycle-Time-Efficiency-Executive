@@ -414,8 +414,10 @@ with level1:
     # dropdown below each chart to inspect one entity's detail.
     # Each chart is centered on the 100% CT Efficiency target: Fast entities
     # (< 100%) fall to the left, Slow entities (> 100%) fall to the right.
-    # The X-axis range is computed per dimension (symmetric around 100%), not
-    # shared, so each of the three charts shows its own percentage spread.
+    # All three charts share ONE X-axis range (symmetric around 100%, sized
+    # to the widest of the three dimensions' spreads) so Supplier, Tooling
+    # Type, and Part efficiency can be compared directly at a glance.
+    _dim_perf = {}
     for title, dim in dims:
         _eff = _dim_eff_data.get(title)
         if _eff is None or _eff.empty:
@@ -425,10 +427,22 @@ with level1:
         _top = _eff_sorted.head(_n_pick)
         _bottom = _eff_sorted.tail(_n_pick)
         _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
-
         _max_dev = max(100.0 - _picked['Efficiency_%'].min(), _picked['Efficiency_%'].max() - 100.0, 1.0)
-        _pad = _max_dev * 0.15
-        _x_range = [100.0 - _max_dev - _pad, 100.0 + _max_dev + _pad]
+        _dim_perf[title] = {'picked': _picked, 'n_pick': _n_pick, 'eff_sorted': _eff_sorted, 'max_dev': _max_dev}
+
+    if _dim_perf:
+        _shared_max_dev = max(p['max_dev'] for p in _dim_perf.values())
+        _shared_pad = _shared_max_dev * 0.15
+        _shared_x_range = [100.0 - _shared_max_dev - _shared_pad, 100.0 + _shared_max_dev + _shared_pad]
+    else:
+        _shared_x_range = None
+
+    for title, dim in dims:
+        if title not in _dim_perf:
+            continue
+        _picked = _dim_perf[title]['picked']
+        _n_pick = _dim_perf[title]['n_pick']
+        _eff_sorted = _dim_perf[title]['eff_sorted']
 
         st.markdown(
             f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
@@ -450,7 +464,7 @@ with level1:
             yaxis=dict(type="category", categoryorder='array', categoryarray=list(_picked[dim]),
                        showgrid=False, tickfont=dict(color="#e2e8f0")),
             xaxis=dict(showgrid=True, gridcolor="#334155", title="Cycle Time Efficiency %",
-                       tickfont=dict(color="#94a3b8"), range=_x_range),
+                       tickfont=dict(color="#94a3b8"), range=_shared_x_range),
             font=dict(color="#e2e8f0"), showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
