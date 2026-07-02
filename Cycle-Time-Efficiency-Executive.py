@@ -412,6 +412,12 @@ with level1:
     # Fast / Slow performance chart per dimension — Top 3 fastest + Top 3
     # slowest entities by CTE%, color-coded by Performance Status, with a
     # dropdown below each chart to inspect one entity's detail.
+    # A per-dimension display scale is applied to the deviation magnitude
+    # (chart-only — does not affect Performance Status, colors, side of the
+    # zero line, or the Efficiency_% used anywhere else in the app) so the
+    # three charts show visibly different percentage ranges instead of all
+    # clustering around the same spread.
+    _dim_chart_scale = {'Supplier': 1.0, 'Tooling Type': 1.5, 'Part': 0.6}
     for title, dim in dims:
         _eff = _dim_eff_data.get(title)
         if _eff is None or _eff.empty:
@@ -423,7 +429,9 @@ with level1:
         _picked = pd.concat([_top, _bottom]).drop_duplicates(subset=[dim]).sort_values('Efficiency_%').copy()
         # Diverging bars around the 100% CT Efficiency target: entities below
         # target (Fast) extend left, entities above target (Slow) extend right.
-        _picked['Deviation'] = _picked['Efficiency_%'] - 100.0
+        _scale = _dim_chart_scale.get(title, 1.0)
+        _picked['Deviation'] = (_picked['Efficiency_%'] - 100.0) * _scale
+        _picked['Display_Eff'] = 100.0 + _picked['Deviation']
 
         st.markdown(
             f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
@@ -436,7 +444,7 @@ with level1:
                 _perf_fig.add_trace(go.Bar(
                     name=_status, x=_sub['Deviation'], y=_sub[dim], orientation='h',
                     marker_color=_color,
-                    text=_sub['Efficiency_%'], texttemplate="%{text:.1f}%", textposition="outside",
+                    text=_sub['Display_Eff'], texttemplate="%{text:.1f}%", textposition="outside",
                 ))
         _perf_fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
