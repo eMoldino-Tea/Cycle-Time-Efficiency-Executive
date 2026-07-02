@@ -416,11 +416,13 @@ with level1:
     # and share one fixed X-axis range, so Supplier, Tooling Type, and Part
     # efficiency can be compared directly at a glance.
     _dim_picked = {}
+    _dim_eff_sorted = {}
     for title, dim in dims:
         _eff = _dim_eff_data.get(title)
         if _eff is None or _eff.empty:
             continue
         _eff_sorted = _eff.sort_values('Efficiency_%', ascending=False)
+        _dim_eff_sorted[title] = _eff_sorted
         _n_pick = min(3, len(_eff_sorted))
         _top = _eff_sorted.head(_n_pick)
         _bottom = _eff_sorted.tail(_n_pick)
@@ -441,6 +443,7 @@ with level1:
         if title not in _dim_picked:
             continue
         _picked, _n_pick = _dim_picked[title]
+        _eff_sorted = _dim_eff_sorted[title]
 
         st.markdown(
             f'<div class="section-title">{title} Performance (Top {_n_pick} Fastest & Slowest)</div>',
