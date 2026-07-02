@@ -1,0 +1,6 @@
+# Generated sample data — local only, never pushed
+sample_data/
+
+# Python
+__pycache__/
+*.pyc

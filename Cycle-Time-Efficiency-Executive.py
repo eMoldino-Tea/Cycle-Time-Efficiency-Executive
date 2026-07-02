@@ -31,6 +31,7 @@ import streamlit.components.v1 as components
 from datetime import timedelta
 
 import cte_core as core
+import sample_data_loader
 
 # ==========================================================================
 # PAGE CONFIG
@@ -83,6 +84,15 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
 base_df = core.load_base_data(version=10)
+
+# Optional sample-data override: if sample_data/ has a CSV, use it instead of
+# the built-in synthetic generator above. No-op (falls back to the line
+# above) when sample_data/ is empty or missing — does not alter core.py.
+_sample = sample_data_loader.load_sample_data_if_present()
+if _sample is not None:
+    base_df, _sample_filename = _sample
+    st.sidebar.success(f"Using sample data: {_sample_filename}")
+
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
 st.sidebar.markdown("### Time Range")
