@@ -62,15 +62,26 @@ header {background-color:transparent !important;}
 [data-testid="stTabs"] button {font-size:1.05rem; font-weight:600;}
 
 /* KPI scorecard */
-.kpi {background-color:#1a1d26; border-radius:14px; padding:22px 24px; border:1px solid #2d3748;
-  box-shadow:0 4px 6px -1px rgba(0,0,0,.2); height:100%; margin-bottom:16px;}
-.kpi-top {display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
-.kpi-name {font-size:1.05rem; font-weight:600; color:#cbd5e1; letter-spacing:.3px;}
-.kpi-row {display:flex; justify-content:space-between; margin-top:14px; font-size:.95rem;}
-.kpi-row .l {color:#94a3b8;} .kpi-row .v {font-weight:700; color:#e2e8f0;}
-.kpi-big {font-size:2.2rem; font-weight:800; line-height:1; color:#fff; margin-top:4px;}
-.kpi-delta {margin-top:12px; font-size:.9rem; font-weight:700; padding-top:10px; border-top:1px solid #2d3748;}
+.kpi {background-color:#1a1d26; border-radius:18px; padding:32px 30px; border:1px solid #2d3748;
+  box-shadow:0 8px 16px -4px rgba(0,0,0,.3); height:100%; margin-bottom:20px;}
+.kpi-top {display:flex; justify-content:space-between; align-items:center; margin-bottom:22px;}
+.kpi-name {font-size:1.4rem; font-weight:700; color:#fff; letter-spacing:.3px;}
 .legend-note {color:#64748b; font-size:.82rem; margin-top:6px;}
+
+/* Hero total number + Fast/Within/Slow tier grid inside the dimension card */
+.kpi-hero {text-align:center; margin-bottom:26px; padding-bottom:24px; border-bottom:1px solid #2d3748;}
+.kpi-hero-num {font-size:3.4rem; font-weight:800; line-height:1; color:#fff;}
+.kpi-hero-label {font-size:1rem; color:#94a3b8; margin-top:8px; text-transform:uppercase; letter-spacing:.6px;}
+.tier-grid {display:flex; gap:14px;}
+.tier-card {flex:1; border-radius:14px; padding:18px 10px; text-align:center;}
+.tier-label {font-size:.85rem; color:#94a3b8; margin-bottom:10px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.5px;}
+.tier-num {font-size:2rem; font-weight:800; line-height:1;}
+.tier-pct {font-size:.95rem; color:#94a3b8; margin-top:6px;}
+.tier-trend {font-size:.78rem; margin-top:10px; font-weight:600; line-height:1.3;}
+
+/* Bigger, more prominent "View all" buttons */
+.stButton > button {font-size:1.05rem; font-weight:600; padding:.65rem 1rem; border-radius:10px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -159,55 +170,61 @@ if current_df.empty:
 # SHARED UI HELPERS
 # ==========================================================================
 def _trend_snippet(curr_count, prev_count):
-    """Small inline period-over-period trend indicator.
+    """Small period-over-period trend indicator.
 
     Color rule: decrease vs previous period = green, increase = red,
     regardless of whether the metric itself is a Fast or Slow count.
     """
     if prev_count == 0 and curr_count == 0:
-        return f'<span style="color:{GREY};font-size:.78rem;">&#8594; no change vs previous period</span>'
+        return f'<span style="color:{GREY};">&#8594; no change</span>'
     elif prev_count == 0:
-        return (f'<span style="color:{RED};font-size:.78rem;">&#9650; +{curr_count} '
-                f'vs previous period (was 0)</span>')
+        return f'<span style="color:{RED};">&#9650; +{curr_count} (was 0)</span>'
     change = curr_count - prev_count
     pct_change = change / prev_count * 100
     if change < 0:
-        return (f'<span style="color:{GREEN};font-size:.78rem;">&#9660; {abs(change)} '
-                f'({abs(pct_change):.1f}%) vs previous period</span>')
+        return f'<span style="color:{GREEN};">&#9660; {abs(change)} ({abs(pct_change):.1f}%)</span>'
     elif change > 0:
-        return (f'<span style="color:{RED};font-size:.78rem;">&#9650; {change} '
-                f'({pct_change:.1f}%) vs previous period</span>')
-    return f'<span style="color:{GREY};font-size:.78rem;">&#8594; no change vs previous period</span>'
+        return f'<span style="color:{RED};">&#9650; {change} ({pct_change:.1f}%)</span>'
+    return f'<span style="color:{GREY};">&#8594; no change</span>'
 
 
 def dimension_card(name, summary, fast_trend, slow_trend):
     """Combined Fast / Within / Slow summary + trend card for one dimension
-    (Supplier / Tooling Type / Part): total count, each tier's count and
-    percentage, and a period-over-period trend indicator on the Fast and
-    Slow tiers.
+    (Supplier / Tooling Type / Part): a large hero number for the total,
+    followed by three tier cards (Fast / Within / Slow) each showing its
+    count, percentage, and — for Fast and Slow — a period-over-period
+    trend indicator vs the prior 30-day period.
 
     fast_trend / slow_trend: (curr_count, prev_count) tuples.
     """
     total = summary['total']
     noun = name + "s"  # "Suppliers" / "Tooling Types" / "Parts"
 
-    def _row(label, n, pct, color, trend=None):
+    def _tier(label, n, pct, color, trend=None):
         pct_txt = f"{pct:.1f}%" if pct is not None else "—"
-        row = (f'<div class="kpi-row"><span class="l">{label}</span>'
-               f'<span class="v" style="color:{color};">{n:,} ({pct_txt})</span></div>')
-        if trend is not None:
-            row += f'<div style="text-align:right;margin-top:2px;">{_trend_snippet(*trend)}</div>'
-        return row
+        trend_html = f'<div class="tier-trend">{_trend_snippet(*trend)}</div>' if trend is not None else ""
+        return f"""
+        <div class="tier-card" style="background:{color}1f;border:1px solid {color}55;">
+          <div class="tier-label">{label}</div>
+          <div class="tier-num" style="color:{color};">{n:,}</div>
+          <div class="tier-pct">{pct_txt}</div>
+          {trend_html}
+        </div>"""
 
     st.markdown(f"""
     <div class="kpi">
       <div class="kpi-top">
         <span class="kpi-name">{name}</span>
       </div>
-      <div class="kpi-row"><span class="l">Total {noun}</span><span class="v">{total:,}</span></div>
-      {_row('Fast', summary['fast'], summary['pct_fast'], RED, fast_trend)}
-      {_row('Within', summary['within'], summary['pct_within'], GREEN)}
-      {_row('Slow', summary['slow'], summary['pct_slow'], YELLOW, slow_trend)}
+      <div class="kpi-hero">
+        <div class="kpi-hero-num">{total:,}</div>
+        <div class="kpi-hero-label">Total {noun}</div>
+      </div>
+      <div class="tier-grid">
+        {_tier('Fast', summary['fast'], summary['pct_fast'], RED, fast_trend)}
+        {_tier('Within', summary['within'], summary['pct_within'], GREEN)}
+        {_tier('Slow', summary['slow'], summary['pct_slow'], YELLOW, slow_trend)}
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
