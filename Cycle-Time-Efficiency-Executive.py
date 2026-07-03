@@ -203,30 +203,26 @@ def dimension_card(name, summary, fast_trend, slow_trend):
     def _tier(label, n, pct, color, trend=None):
         pct_txt = f"{pct:.1f}%" if pct is not None else "—"
         trend_html = f'<div class="tier-trend">{_trend_snippet(*trend)}</div>' if trend is not None else ""
-        return f"""
-        <div class="tier-card" style="background:{color}1f;border:1px solid {color}55;">
-          <div class="tier-label">{label}</div>
-          <div class="tier-num" style="color:{color};">{n:,}</div>
-          <div class="tier-pct">{pct_txt}</div>
-          {trend_html}
-        </div>"""
+        return (f'<div class="tier-card" style="background:{color}1f;border:1px solid {color}55;">'
+                f'<div class="tier-label">{label}</div>'
+                f'<div class="tier-num" style="color:{color};">{n:,}</div>'
+                f'<div class="tier-pct">{pct_txt}</div>'
+                f'{trend_html}</div>')
 
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-top">
-        <span class="kpi-name">{name}</span>
-      </div>
-      <div class="kpi-hero">
-        <div class="kpi-hero-num">{total:,}</div>
-        <div class="kpi-hero-label">Total {noun}</div>
-      </div>
-      <div class="tier-grid">
-        {_tier('Fast', summary['fast'], summary['pct_fast'], RED, fast_trend)}
-        {_tier('Within', summary['within'], summary['pct_within'], GREEN)}
-        {_tier('Slow', summary['slow'], summary['pct_slow'], YELLOW, slow_trend)}
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="kpi">
+  <div class="kpi-top">
+    <span class="kpi-name">{name}</span>
+  </div>
+  <div class="kpi-hero">
+    <div class="kpi-hero-num">{total:,}</div>
+    <div class="kpi-hero-label">Total {noun}</div>
+  </div>
+  <div class="tier-grid">
+    {_tier('Fast', summary['fast'], summary['pct_fast'], RED, fast_trend)}
+    {_tier('Within', summary['within'], summary['pct_within'], GREEN)}
+    {_tier('Slow', summary['slow'], summary['pct_slow'], YELLOW, slow_trend)}
+  </div>
+</div>""", unsafe_allow_html=True)
 
 
 # ---- conditional-format stylers (preserve original number formats) ---------
