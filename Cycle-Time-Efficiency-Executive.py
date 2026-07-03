@@ -458,7 +458,7 @@ with level3:
      padding:16px 20px;margin-bottom:12px;">
   <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Fastest Performer</div>
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{fastest[dim]}</div>
-  <div style="color:{RED};font-size:1rem;font-weight:600;">{fastest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(fastest['Net_Financial'])}</div>
+  <div style="font-size:1rem;font-weight:600;"><span style="color:{RED};">{fastest['Efficiency_%']:.2f}%</span> &nbsp;|&nbsp; <span style="color:#e2e8f0;">{_fin_label(fastest['Net_Financial'])}</span></div>
 </div>""", unsafe_allow_html=True)
             with pw2:
                 st.markdown(f"""
@@ -467,7 +467,7 @@ with level3:
      padding:16px 20px;margin-bottom:12px;">
   <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Slowest Performer</div>
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{slowest[dim]}</div>
-  <div style="color:{YELLOW};font-size:1rem;font-weight:600;">{slowest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(slowest['Net_Financial'])}</div>
+  <div style="font-size:1rem;font-weight:600;"><span style="color:{YELLOW};">{slowest['Efficiency_%']:.2f}%</span> &nbsp;|&nbsp; <span style="color:#e2e8f0;">{_fin_label(slowest['Net_Financial'])}</span></div>
 </div>""", unsafe_allow_html=True)
 
         m1, m2 = st.columns(2)
