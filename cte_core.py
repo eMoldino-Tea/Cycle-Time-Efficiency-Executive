@@ -30,13 +30,6 @@ FAST_THRESHOLD = 105.0   # Efficiency % > 105  -> "Fast"
 SLOW_THRESHOLD = 95.0    # Efficiency % < 95   -> "Slow"
 #                          otherwise            -> "Within"
 
-# NEW executive risk rule requested for this dashboard:
-#   Good   : metric >= 80%
-#   At Risk: metric <  80%
-# This is an ADDITIONAL classification layer applied on top of the existing
-# Cycle Time Efficiency % metric. It does not alter any underlying math.
-RISK_THRESHOLD = 80.0
-
 # Original financial baseline (labor 40 + machine 180). rate_scalar = combined/220.
 BASELINE_RATE = 220.0
 
@@ -332,15 +325,6 @@ def performance_status_from_eff(ct_eff_wt):
         return 'Within'
 
 
-def classify_risk(eff):
-    """At Risk if Slow (>105%) or Fast (<95%); Good if Within (95–105%)."""
-    if pd.isna(eff):
-        return 'No Data'
-    if eff > FAST_THRESHOLD or eff < SLOW_THRESHOLD:
-        return 'At Risk'
-    return 'Good'
-
-
 # ==========================================================================
 # 4. COMPREHENSIVE ROW  (verbatim math; period label is now a parameter)
 # ==========================================================================
@@ -471,8 +455,6 @@ def generate_ranking_table_data(df, col):
         lambda x: 'Slow' if pd.notna(x) and x > FAST_THRESHOLD
         else ('Fast' if pd.notna(x) and x < SLOW_THRESHOLD else 'Within')
     )
-    # Executive risk overlay (does not alter any existing column).
-    agg['Risk Status'] = agg['Overall Efficiency %'].apply(classify_risk)
     return agg
 
 
@@ -485,10 +467,10 @@ def entity_efficiency(df, dim):
 
     Identical to calc_weighted_eff applied per group:
         (sum Expected_Hours / sum Used_Hours) * 100
-    Returns a DataFrame: [dim, Expected_Hours, Used_Hours, Efficiency_%, Risk Status].
+    Returns a DataFrame: [dim, Expected_Hours, Used_Hours, Efficiency_%, Performance Status].
     """
     if df.empty:
-        return pd.DataFrame(columns=[dim, 'Expected_Hours', 'Used_Hours', 'Efficiency_%', 'Risk Status'])
+        return pd.DataFrame(columns=[dim, 'Expected_Hours', 'Used_Hours', 'Efficiency_%', 'Performance Status'])
     g = (df.groupby(dim)
            .agg(Expected_Hours=('Expected_Hours', 'sum'),
                 Used_Hours=('Used_Hours', 'sum'))
@@ -496,47 +478,81 @@ def entity_efficiency(df, dim):
     g['Efficiency_%'] = np.where(g['Used_Hours'] > 0,
                                  (g['Expected_Hours'] / g['Used_Hours']) * 100,
                                  np.nan)
-    g['Risk Status'] = g['Efficiency_%'].apply(classify_risk)
+    g['Performance Status'] = g['Efficiency_%'].apply(performance_status_from_eff)
     return g
 
 
-def risk_summary(df, dim):
-    """Executive KPI numbers for one dimension on a given dataframe slice.
+def fast_within_slow_summary(df, dim):
+    """Executive summary numbers for one dimension on a given dataframe slice.
 
-    Returns dict: total, at_risk, pct_at_risk (None if total == 0).
+    Returns dict: total, fast, within, slow, pct_fast, pct_within, pct_slow.
+    Percentages are None when total == 0.
     """
     g = entity_efficiency(df, dim)
-    valid = g[g['Risk Status'] != 'No Data']
-    total = int(valid[dim].nunique()) if not valid.empty else 0
-    at_risk = int((valid['Risk Status'] == 'At Risk').sum()) if not valid.empty else 0
-    pct = (at_risk / total * 100) if total > 0 else None
-    return {'total': total, 'at_risk': at_risk, 'pct_at_risk': pct}
+    total = int(g[dim].nunique()) if not g.empty else 0
+    counts = g['Performance Status'].value_counts() if not g.empty else pd.Series(dtype=int)
+    fast = int(counts.get('Fast', 0))
+    within = int(counts.get('Within', 0))
+    slow = int(counts.get('Slow', 0))
+    pct = (lambda n: (n / total * 100) if total > 0 else None)
+    return {
+        'total': total, 'fast': fast, 'within': within, 'slow': slow,
+        'pct_fast': pct(fast), 'pct_within': pct(within), 'pct_slow': pct(slow),
+    }
 
 
-def risk_trend(df, dim, freq='W'):
-    """Time series of #entities at risk and total entities per time bucket.
+def act_weighted_deviation_trend(df, dim, freq='M'):
+    """ACT-weighted cycle-time deviation trend for one dimension, over time.
 
-    freq: pandas offset alias ('D' daily, 'W' weekly, 'MS' month-start).
+    A plain average of each entity's raw CT Efficiency % treats every tool
+    equally regardless of its Approved Cycle Time (ACT), so a 3-second tool
+    and a 1,000-second tool distort the average by the same amount even
+    though a given deviation matters far more for the short-cycle tool.
+
+    Methodology:
+      1. For each tool, in each time bucket: deviation = Actual_CT - ACT
+         (seconds; positive = slower than approved, negative = faster).
+      2. Within each dimension entity (e.g. one Supplier), average that
+         entity's tool-level deviations weighted by each tool's own ACT.
+      3. Average those entity-level weighted deviations across all entities
+         in the dimension to get one aggregated supply-chain figure per
+         time bucket.
+
+    Returns a DataFrame: [bucket, Weighted_Deviation] (seconds).
     """
     if df.empty:
-        return pd.DataFrame(columns=['bucket', 'at_risk', 'total', 'pct_at_risk'])
+        return pd.DataFrame(columns=['bucket', 'Weighted_Deviation'])
     d = df.copy()
     d['bucket'] = d['Date'].dt.to_period(freq).dt.start_time
-    g = (d.groupby(['bucket', dim])
-           .agg(Expected_Hours=('Expected_Hours', 'sum'),
-                Used_Hours=('Used_Hours', 'sum'))
-           .reset_index())
-    g['Efficiency_%'] = np.where(g['Used_Hours'] > 0,
-                                 (g['Expected_Hours'] / g['Used_Hours']) * 100,
-                                 np.nan)
-    g = g[g['Efficiency_%'].notna()]
-    g['at_risk_flag'] = (g['Efficiency_%'] > FAST_THRESHOLD) | (g['Efficiency_%'] < SLOW_THRESHOLD)
-    out = (g.groupby('bucket')
-             .agg(at_risk=('at_risk_flag', 'sum'),
-                  total=(dim, 'nunique'))
-             .reset_index())
-    out['pct_at_risk'] = np.where(out['total'] > 0, out['at_risk'] / out['total'] * 100, 0)
-    return out.sort_values('bucket')
+
+    tool_g = (d.groupby(['bucket', dim, 'Tooling'])
+                .agg(Expected_Hours=('Expected_Hours', 'sum'),
+                     Used_Hours=('Used_Hours', 'sum'),
+                     Total_Shots=('Total_Shots', 'sum'))
+                .reset_index())
+    tool_g = tool_g[tool_g['Total_Shots'] > 0]
+    if tool_g.empty:
+        return pd.DataFrame(columns=['bucket', 'Weighted_Deviation'])
+    tool_g['ACT_tool'] = tool_g['Expected_Hours'] * 3600 / tool_g['Total_Shots']
+    tool_g['ActualCT_tool'] = tool_g['Used_Hours'] * 3600 / tool_g['Total_Shots']
+    tool_g['Deviation_tool'] = tool_g['ActualCT_tool'] - tool_g['ACT_tool']
+
+    def _weighted_dev(g):
+        w = g['ACT_tool']
+        if w.sum() == 0:
+            return np.nan
+        return np.average(g['Deviation_tool'], weights=w)
+
+    entity_g = (tool_g.groupby(['bucket', dim])
+                       .apply(_weighted_dev)
+                       .reset_index(name='Weighted_Deviation'))
+
+    out = (entity_g.groupby('bucket')['Weighted_Deviation']
+                    .mean()
+                    .reset_index()
+                    .dropna(subset=['Weighted_Deviation'])
+                    .sort_values('bucket'))
+    return out
 
 
 # ==========================================================================

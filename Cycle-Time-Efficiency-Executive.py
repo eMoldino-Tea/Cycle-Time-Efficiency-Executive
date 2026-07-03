@@ -9,17 +9,17 @@ thresholds, and data transformations are reused unchanged from `cte_core.py`
 (itself a faithful copy of the original app's business logic). Only the user
 experience and dashboard structure are new.
 
-Three-level hierarchy:
-  Level 1  Executive Overview  -- KPI scorecards (Supplier / Tooling Type / Part
-                                   health) with deltas vs the previous period.
-  Level 2  Trend Analysis      -- at-risk counts over time per dimension.
-  Level 3  Granular Analysis   -- cascading filters + reusable drill-down
-                                   (Overview / Trend / Detailed Table) per
-                                   Supplier, Tooling Type, and Part.
+Two-tab structure:
+  Executive Summary        -- Fast / Within / Slow counts and percentages per
+                               Supplier, Tooling Type, and Part.
+  Full Ranking and Details -- cascading filters + reusable drill-down
+                               (Overview / Detailed Table / Trend) per
+                               Supplier, Tooling Type, and Part.
 
-Risk rule (executive overlay):  Good >= 80%   |   At Risk < 80%
-The original 95%/105% "Performance Status" is preserved verbatim in the detailed
-and ranking tables.
+Performance is classified into exactly three tiers (no "At Risk" concept):
+  Fast   : CT Efficiency < 95%
+  Within : CT Efficiency 95%-105%
+  Slow   : CT Efficiency > 105%
 """
 
 import numpy as np
@@ -66,13 +66,8 @@ header {background-color:transparent !important;}
   box-shadow:0 4px 6px -1px rgba(0,0,0,.2); height:100%;}
 .kpi-top {display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
 .kpi-name {font-size:1.05rem; font-weight:600; color:#cbd5e1; letter-spacing:.3px;}
-.kpi-big {font-size:2.4rem; font-weight:800; line-height:1; color:#fff;}
-.kpi-unit {font-size:.95rem; color:#94a3b8; margin-top:6px;}
 .kpi-row {display:flex; justify-content:space-between; margin-top:14px; font-size:.95rem;}
 .kpi-row .l {color:#94a3b8;} .kpi-row .v {font-weight:700; color:#e2e8f0;}
-.kpi-delta {margin-top:14px; font-size:.95rem; font-weight:700; padding-top:12px; border-top:1px solid #2d3748;}
-.text-green {color:#5cb85c !important;} .text-yellow {color:#eab308 !important;} .text-red {color:#d9534f !important;}
-.text-neutral {color:#94a3b8 !important;}
 .legend-note {color:#64748b; font-size:.82rem; margin-top:6px;}
 </style>
 """, unsafe_allow_html=True)
@@ -120,16 +115,11 @@ st.sidebar.markdown("### Financial Parameters")
 labor_rate = st.sidebar.number_input("Labor Rate ($/hour)", min_value=0.0, value=40.0, step=1.0)
 machine_rate = st.sidebar.number_input("Machine Rate ($/hour)", min_value=0.0, value=180.0, step=1.0)
 
-# ---- Build current & previous-period slices (same financial transform) -----
+# ---- Build the current-period slice (same financial transform) -------------
 def date_slice(df, s, e):
     return df[(df['Date'] >= s) & (df['Date'] <= e)].copy()
 
 current_raw = core.apply_financials(date_slice(base_df, start_date, end_date), labor_rate, machine_rate)
-
-duration = end_date - start_date
-prev_end = start_date
-prev_start = start_date - duration
-previous_raw = core.apply_financials(date_slice(base_df, prev_start, prev_end), labor_rate, machine_rate)
 
 # ---- Master Filter (global, cascading) -- carried over from the original app
 st.sidebar.markdown("---")
@@ -154,8 +144,7 @@ def apply_master_filters(df):
     return df
 
 current_df = apply_master_filters(current_raw)
-previous_df = apply_master_filters(previous_raw)
-# Full historical range for Trend Analysis (ignores the time-range filter)
+# Full historical range for the Trend section (ignores the time-range filter)
 trend_df = apply_master_filters(core.apply_financials(base_df, labor_rate, machine_rate))
 
 period_label = f"{pd.to_datetime(start_date).date()} to {pd.to_datetime(end_date).date()}"
@@ -167,40 +156,26 @@ if current_df.empty:
 # ==========================================================================
 # SHARED UI HELPERS
 # ==========================================================================
-def kpi_card(name, summary, prev_summary):
+def fws_card(name, summary):
+    """Fast / Within / Slow summary card for one dimension (Supplier / Tooling
+    Type / Part): total count plus each tier's count and percentage."""
     total = summary['total']
-    at_risk = summary['at_risk']
-    pct = summary['pct_at_risk']
-    pct_txt = f"{pct:.1f}%" if pct is not None else "—"
+    noun = name + "s"  # "Suppliers" / "Tooling Types" / "Parts"
 
-    # delta vs previous period (% change of at-risk count)
-    prev_count = prev_summary['at_risk']
-    curr_count = at_risk
-    if prev_count == 0 and curr_count == 0:
-        delta_html = '<span class="text-neutral">&#8594; No change vs previous period</span>'
-    elif prev_count == 0:
-        delta_html = f'<span class="text-red">&#9650; {curr_count} new at-risk entr{"y" if curr_count == 1 else "ies"} vs previous period (was 0)</span>'
-    else:
-        pct_change = (curr_count - prev_count) / prev_count * 100
-        if pct_change < 0:
-            delta_html = f'<span class="text-green">&#9660; {abs(pct_change):.1f}% vs previous period</span>'
-        elif pct_change > 0:
-            delta_html = f'<span class="text-red">&#9650; {pct_change:.1f}% vs previous period</span>'
-        else:
-            delta_html = '<span class="text-neutral">&#8594; 0.0% vs previous period</span>'
+    def _row(label, n, pct, color):
+        pct_txt = f"{pct:.1f}%" if pct is not None else "—"
+        return (f'<div class="kpi-row"><span class="l">{label}</span>'
+                f'<span class="v" style="color:{color};">{n:,} ({pct_txt})</span></div>')
 
-    risk_color = GREY
-    noun = name.replace(" Health", "") + "s"  # "Suppliers" / "Tooling Types" / "Parts"
     st.markdown(f"""
     <div class="kpi">
       <div class="kpi-top">
         <span class="kpi-name">{name}</span>
       </div>
-      <div class="kpi-big" style="color:{risk_color};">{at_risk:,}</div>
-      <div class="kpi-unit">At-Risk {noun}</div>
       <div class="kpi-row"><span class="l">Total {noun}</span><span class="v">{total:,}</span></div>
-      <div class="kpi-row"><span class="l">% At Risk</span><span class="v">{pct_txt}</span></div>
-      <div class="kpi-delta">{delta_html}</div>
+      {_row('Fast', summary['fast'], summary['pct_fast'], RED)}
+      {_row('Within', summary['within'], summary['pct_within'], GREEN)}
+      {_row('Slow', summary['slow'], summary['pct_slow'], YELLOW)}
     </div>
     """, unsafe_allow_html=True)
 
@@ -234,11 +209,6 @@ def _status_css(v):
             "Within": "background-color:#14532d;color:#fff;"}.get(v, "")
 
 
-def _risk_css(v):
-    return {"At Risk": "background-color:#7f1d1d;color:#fff;",
-            "Good": "background-color:#14532d;color:#fff;"}.get(v, "")
-
-
 def _trend_change_css(v):
     if not isinstance(v, str) or v == '—':
         return 'color:#94a3b8;'
@@ -254,8 +224,6 @@ def style_table(df, fmt_map):
     sty = df.style.format(fmt, na_rep="N/A")
     if "Performance Status" in df.columns:
         sty = sty.map(_status_css, subset=["Performance Status"])
-    if "Risk Status" in df.columns:
-        sty = sty.map(_risk_css, subset=["Risk Status"])
     return sty
 
 
@@ -297,8 +265,9 @@ def _bucket_label(bucket_ts, freq):
 st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashboard</div>', unsafe_allow_html=True)
 st.markdown(
     f'<div class="dash-sub">'
-    f'At Risk: Slow (&gt;105% CT Efficiency) or Fast (&lt;95% CT Efficiency) &nbsp;|&nbsp; '
-    f'Good: Within (95%–105% CT Efficiency)'
+    f'Fast: &lt;95% CT Efficiency &nbsp;|&nbsp; '
+    f'Within: 95%–105% CT Efficiency &nbsp;|&nbsp; '
+    f'Slow: &gt;105% CT Efficiency'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -332,8 +301,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-level1, level2, level3 = st.tabs([
-    "Executive Summary", "Trend Analysis", "Full Ranking and Details",
+level1, level3 = st.tabs([
+    "Executive Summary", "Full Ranking and Details",
 ])
 
 # Navigation: fires once after a "View All" button click to switch tabs programmatically.
@@ -348,9 +317,9 @@ if _nav_target is not None:
         var t = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
         if (t && t[idx]) {{ t[idx].click(); if (cb) setTimeout(cb, 600); }}
     }}
-    // Step 1: switch to "Full Ranking and Details" (main tab index 2)
-    // Step 2: after 600 ms switch to the sub-tab (indices 3, 4, 5)
-    setTimeout(function() {{ click(2, function() {{ click(3 + {_sub_idx}, null); }}); }}, 150);
+    // Step 1: switch to "Full Ranking and Details" (main tab index 1)
+    // Step 2: after 600 ms switch to the sub-tab (indices 2, 3, 4)
+    setTimeout(function() {{ click(1, function() {{ click(2 + {_sub_idx}, null); }}); }}, 150);
 }})();
 </script>
 """, height=0)
@@ -366,44 +335,10 @@ with level1:
             ("Tooling Type", "Tooling Type"),
             ("Part", "Part")]
 
-    # KPI deltas always use the last 30 days of data vs the 30 days before that,
-    # independent of the date range selector, so the comparison is always valid.
-    _kpi_curr = apply_master_filters(core.apply_financials(
-        date_slice(base_df, max_date - timedelta(days=30), max_date), labor_rate, machine_rate))
-    _kpi_prev = apply_master_filters(core.apply_financials(
-        date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
-
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
         with col:
-            kpi_card(title,
-                     core.risk_summary(_kpi_curr, dim),
-                     core.risk_summary(_kpi_prev, dim))
-
-            # Fast / Within / Slow breakdown — decomposes the "At Risk" figure
-            # above (Fast+Slow combined) so cost-saving opportunities (Fast) and
-            # quality/process risks (Fast and Slow) can each be read directly,
-            # same logic as the Full Ranking and Details breakdown.
-            _eff = core.entity_efficiency(_kpi_curr, dim)
-            if not _eff.empty:
-                _eff = _eff.copy()
-                _eff['Performance Status'] = _eff['Efficiency_%'].apply(core.performance_status_from_eff)
-                _status_n = _eff['Performance Status'].value_counts()
-                _total_n = len(_eff)
-                def _es_pct(n):
-                    return f"{n / _total_n * 100:.1f}%" if _total_n else "—"
-                bd1, bd2, bd3 = st.columns(3)
-                for _bcol, _label, _color in [(bd1, 'Fast', RED), (bd2, 'Within', GREEN), (bd3, 'Slow', YELLOW)]:
-                    _n = int(_status_n.get(_label, 0))
-                    with _bcol:
-                        st.markdown(f"""
-<div style="background:#1a1d26;border:1px solid #2d3748;border-left:3px solid {_color};
-     border-radius:10px;padding:10px 14px;margin-bottom:12px;">
-  <div style="color:#94a3b8;font-size:.78rem;margin-bottom:3px;">{_label}</div>
-  <div style="color:{_color};font-size:1.1rem;font-weight:700;">{_n:,}
-    <span style="color:#94a3b8;font-size:.78rem;font-weight:400;">({_es_pct(_n)})</span>
-  </div>
-</div>""", unsafe_allow_html=True)
+            fws_card(title, core.fast_within_slow_summary(current_df, dim))
 
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
@@ -411,116 +346,9 @@ with level1:
                 st.rerun()
 
     st.markdown(
-        '<div class="legend-note">Clicking a card navigates to the Full Ranking and Details tab. '
-        'Delta compares the at-risk count against the prior 30-day period (last 30 days vs previous 30 days).</div>',
+        '<div class="legend-note">Clicking "View all" navigates to the Full Ranking and Details tab.</div>',
         unsafe_allow_html=True,
     )
-
-# ==========================================================================
-# LEVEL 2 — TREND ANALYSIS
-# ==========================================================================
-with level2:
-    trend_view = st.radio(
-        "View", ["Month to Month", "Quarter to Quarter"], horizontal=True, key="trend_view"
-    )
-    trend_freq = 'M' if trend_view == "Month to Month" else 'Q'
-    trend_period_label = "Month" if trend_freq == 'M' else "Quarter"
-
-    trend_dims = [
-        ("Suppliers", "Supplier", "#38bdf8"),
-        ("Tooling Types", "Tooling Type", "#fb923c"),
-        ("Parts", "Part", "#a78bfa"),
-    ]
-
-    _d = trend_df.copy()
-    if not _d.empty:
-        _d['bucket'] = _d['Date'].dt.to_period(trend_freq).dt.start_time
-
-    trend_sub_tabs = st.tabs(["Suppliers", "Tooling Types", "Parts"])
-
-    for sub_tab, (label, dim, tab_color) in zip(trend_sub_tabs, trend_dims):
-        with sub_tab:
-            # Compute per-entity-average CTE trend for this dimension
-            if not _d.empty:
-                per_ent = (
-                    _d.groupby(['bucket', dim])
-                      .agg(Expected_Hours=('Expected_Hours', 'sum'),
-                           Used_Hours=('Used_Hours', 'sum'))
-                      .reset_index()
-                )
-                per_ent['CTE'] = np.where(per_ent['Used_Hours'] > 0,
-                                          per_ent['Expected_Hours'] / per_ent['Used_Hours'] * 100,
-                                          np.nan)
-                cte_trend = (per_ent.groupby('bucket')['CTE'].mean()
-                                    .reset_index()
-                                    .dropna(subset=['CTE'])
-                                    .sort_values('bucket'))
-                cte_trend['label'] = cte_trend['bucket'].apply(
-                    lambda x: _bucket_label(x, trend_freq)
-                )
-            else:
-                cte_trend = pd.DataFrame(columns=['bucket', 'CTE', 'label'])
-
-            # --- CTE Trend Line ---
-            if not cte_trend.empty:
-                fig_line = go.Figure()
-                fig_line.add_trace(go.Scatter(
-                    x=cte_trend['label'], y=cte_trend['CTE'],
-                    mode="lines+markers", name="Cycle Time Efficiency",
-                    line=dict(color=tab_color, width=2.5), marker=dict(size=6),
-                    hovertemplate="<b>%{x}</b><br>CTE: %{y:.1f}%<extra></extra>",
-                ))
-                fig_line.update_layout(
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    height=380, margin=dict(l=10, r=20, t=20, b=10),
-                    xaxis=dict(type='category', showgrid=False,
-                               tickfont=dict(color="#94a3b8")),
-                    yaxis=dict(showgrid=True, gridcolor="#334155",
-                               title="Cycle Time Efficiency (%)",
-                               tickfont=dict(color="#94a3b8")),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    font=dict(color="#e2e8f0"),
-                )
-                st.plotly_chart(fig_line, use_container_width=True, key=f"trend_line_{dim}")
-            else:
-                st.info("Not enough dated data in this range to plot a trend.")
-
-            # --- At-Risk Table ---
-            t = core.risk_trend(trend_df, dim, trend_freq)
-            if not t.empty:
-                t = t.copy().reset_index(drop=True)
-                t['prev_at_risk'] = t['at_risk'].shift(1)
-
-                def _fmt_change(row):
-                    prev = row['prev_at_risk']
-                    curr = row['at_risk']
-                    if pd.isna(prev):
-                        return '—'
-                    if prev == 0 and curr == 0:
-                        return '→ 0.0%'
-                    if prev == 0:
-                        return '↑ —'
-                    pct = (curr - prev) / prev * 100
-                    if pct < 0:
-                        return f'↓ {abs(pct):.1f}%'
-                    if pct > 0:
-                        return f'↑ {pct:.1f}%'
-                    return '→ 0.0%'
-
-                t['% Change vs Previous Period'] = t.apply(_fmt_change, axis=1)
-                t['bucket'] = t['bucket'].apply(lambda x: _bucket_label(x, trend_freq))
-
-                display_t = t[['bucket', 'at_risk', 'total', '% Change vs Previous Period']].copy()
-                display_t.columns = [
-                    trend_period_label, f'{label} At Risk', f'Total {label}',
-                    '% Change vs Previous Period',
-                ]
-                sty = display_t.style.map(
-                    _trend_change_css, subset=['% Change vs Previous Period']
-                )
-                st.dataframe(sty, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"No at-risk data available for {label}.")
 
 # ==========================================================================
 # LEVEL 3 — FULL RANKING AND DETAILS
@@ -540,11 +368,8 @@ with level3:
 
     def render_dimension_view(view_df, dim, keyns):
         # --- Overview ---
-        summ = core.risk_summary(view_df, dim)
+        summ = core.fast_within_slow_summary(view_df, dim)
         eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
-        if not eff.empty:
-            eff = eff.copy()
-            eff['Performance Status'] = eff['Efficiency_%'].apply(core.performance_status_from_eff)
 
         # Fastest / Slowest Performer widgets
         if not eff.empty:
@@ -566,34 +391,29 @@ with level3:
             with pw1:
                 st.markdown(f"""
 <div style="background:#1a1d26;border:1px solid #2d3748;
-     border-left:3px solid {GREEN};border-radius:10px;
+     border-left:3px solid {RED};border-radius:10px;
      padding:16px 20px;margin-bottom:12px;">
   <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Fastest Performer</div>
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{fastest[dim]}</div>
-  <div style="color:{GREEN};font-size:1rem;font-weight:600;">{fastest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(fastest['Net_Financial'])}</div>
+  <div style="color:{RED};font-size:1rem;font-weight:600;">{fastest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(fastest['Net_Financial'])}</div>
 </div>""", unsafe_allow_html=True)
             with pw2:
                 st.markdown(f"""
 <div style="background:#1a1d26;border:1px solid #2d3748;
-     border-left:3px solid {RED};border-radius:10px;
+     border-left:3px solid {YELLOW};border-radius:10px;
      padding:16px 20px;margin-bottom:12px;">
   <div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">Slowest Performer</div>
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{slowest[dim]}</div>
-  <div style="color:{RED};font-size:1rem;font-weight:600;">{slowest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(slowest['Net_Financial'])}</div>
+  <div style="color:{YELLOW};font-size:1rem;font-weight:600;">{slowest['Efficiency_%']:.2f}% &nbsp;|&nbsp; {_fin_label(slowest['Net_Financial'])}</div>
 </div>""", unsafe_allow_html=True)
 
-        m1, m2, m3, m4 = st.columns(4)
+        m1, m2 = st.columns(2)
         m1.metric(f"Total {dim}s", f"{summ['total']:,}")
-        m2.metric("At Risk", f"{summ['at_risk']:,}")
-        m3.metric("% At Risk",
-                  f"{summ['pct_at_risk']:.1f}%" if summ['pct_at_risk'] is not None else "—")
         overall = core.calc_weighted_eff(view_df)
-        m4.metric("Overall CT Efficiency",
+        m2.metric("Overall CT Efficiency",
                   f"{overall:.1f}%" if pd.notna(overall) else "N/A")
 
-        # Fast / Within / Slow breakdown — "At Risk" above is Fast+Slow combined;
-        # this splits it out so cost-saving opportunities (Fast) and quality/process
-        # risks (Fast and Slow) can each be read directly off the same data.
+        # Fast / Within / Slow breakdown
         if not eff.empty:
             _status_n = eff['Performance Status'].value_counts()
             _total_n = len(eff)
@@ -645,73 +465,13 @@ with level3:
             )
             st.plotly_chart(bar, use_container_width=True, key=f"ov_bar_{keyns}")
 
-        # --- Trend ---
-        st.markdown('<div class="section-title">Trend</div>', unsafe_allow_html=True)
-        gran_view = st.radio(
-            "View", ["Month to Month", "Quarter to Quarter"],
-            horizontal=True, key=f"gran_view_{keyns}",
-        )
-        gran_freq = 'M' if gran_view == "Month to Month" else 'Q'
-
-        _vd = view_df.copy()
-        if not _vd.empty:
-            _vd['bucket'] = _vd['Date'].dt.to_period(gran_freq).dt.start_time
-            cte_g = (
-                _vd.groupby('bucket')
-                   .agg(Expected_Hours=('Expected_Hours', 'sum'),
-                        Used_Hours=('Used_Hours', 'sum'))
-                   .reset_index()
-            )
-            cte_g['CTE'] = np.where(cte_g['Used_Hours'] > 0,
-                                    cte_g['Expected_Hours'] / cte_g['Used_Hours'] * 100,
-                                    np.nan)
-            cte_g = cte_g.dropna(subset=['CTE']).sort_values('bucket')
-            cte_g['label'] = cte_g['bucket'].apply(lambda x: _bucket_label(x, gran_freq))
-        else:
-            cte_g = pd.DataFrame(columns=['bucket', 'CTE', 'label', 'Expected_Hours', 'Used_Hours'])
-
-        if not cte_g.empty:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=cte_g['label'], y=cte_g['CTE'],
-                mode="lines+markers", name="Cycle Time Efficiency",
-                line=dict(color=GREY, width=2.5), marker=dict(size=6),
-                customdata=np.stack([cte_g['Expected_Hours'], cte_g['Used_Hours']], axis=-1),
-                hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    "CTE: %{y:.1f}%<br>"
-                    "Expected Hours: %{customdata[0]:,.1f}<br>"
-                    "Used Hours: %{customdata[1]:,.1f}"
-                    "<extra></extra>"
-                ),
-            ))
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                height=360, margin=dict(l=10, r=20, t=20, b=10),
-                xaxis=dict(type='category', showgrid=False, tickfont=dict(color="#94a3b8")),
-                yaxis=dict(showgrid=True, gridcolor="#334155",
-                           title="Cycle Time Efficiency (%)",
-                           tickfont=dict(color="#94a3b8")),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                font=dict(color="#e2e8f0"),
-            )
-            st.plotly_chart(fig, use_container_width=True, key=f"tr_{keyns}")
-        else:
-            st.info("Not enough dated data to plot a trend.")
-
-        # --- Detailed Table ---
+        # --- Detailed Table (moved directly below the bar graph) ---
         st.markdown('<div class="section-title">Detailed Table</div>', unsafe_allow_html=True)
         rank = core.generate_ranking_table_data(view_df, dim)
         if rank.empty:
             st.info("No data available.")
             return
-        if 'Overall Efficiency %' in rank.columns and 'Risk Status' in rank.columns:
-            _ar = rank[rank['Risk Status'] == 'At Risk'].sort_values('Overall Efficiency %', ascending=False)
-            _gd = rank[rank['Risk Status'] != 'At Risk'].sort_values(
-                by='Overall Efficiency %', key=lambda x: abs(x - 100), ascending=True
-            )
-            rank = pd.concat([_ar, _gd], ignore_index=True)
-        elif 'Overall Efficiency %' in rank.columns:
+        if 'Overall Efficiency %' in rank.columns:
             rank = rank.sort_values('Overall Efficiency %', ascending=True)
         top = st.columns([3, 1])
         with top[0]:
@@ -743,6 +503,74 @@ with level3:
                              use_container_width=True, hide_index=True)
             else:
                 st.info("No tooling-level detail available.")
+
+        # --- Trend (ACT-weighted deviation; full history, ignores the sidebar
+        # Time Range so the trend is always shown over the full dataset) ---
+        st.markdown('<div class="section-title">Trend</div>', unsafe_allow_html=True)
+        gran_view = st.radio(
+            "View", ["Month to Month", "Quarter to Quarter"],
+            horizontal=True, key=f"gran_view_{keyns}",
+        )
+        gran_freq = 'M' if gran_view == "Month to Month" else 'Q'
+        gran_period_label = "Month" if gran_freq == 'M' else "Quarter"
+
+        dev_trend = core.act_weighted_deviation_trend(trend_df, dim, gran_freq)
+
+        # --- Trend Graph ---
+        if not dev_trend.empty:
+            dev_trend = dev_trend.copy()
+            dev_trend['label'] = dev_trend['bucket'].apply(lambda x: _bucket_label(x, gran_freq))
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=dev_trend['label'], y=dev_trend['Weighted_Deviation'],
+                mode="lines+markers", name="ACT-Weighted Deviation",
+                line=dict(color=GREY, width=2.5), marker=dict(size=6),
+                hovertemplate="<b>%{x}</b><br>Deviation: %{y:.2f}s<extra></extra>",
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="#475569",
+                          annotation_text="On Target (ACT)", annotation_position="top left",
+                          annotation_font_color="#94a3b8")
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=360, margin=dict(l=10, r=20, t=20, b=10),
+                xaxis=dict(type='category', showgrid=False, tickfont=dict(color="#94a3b8")),
+                yaxis=dict(showgrid=True, gridcolor="#334155",
+                           title="ACT-Weighted Deviation (seconds)",
+                           tickfont=dict(color="#94a3b8")),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                font=dict(color="#e2e8f0"),
+            )
+            st.plotly_chart(fig, use_container_width=True, key=f"tr_{keyns}")
+        else:
+            st.info("Not enough dated data to plot a trend.")
+
+        # --- Trend Table ---
+        if not dev_trend.empty:
+            t = dev_trend.copy().reset_index(drop=True)
+            t['prev_dev'] = t['Weighted_Deviation'].shift(1)
+
+            def _fmt_dev_change(row):
+                prev, curr = row['prev_dev'], row['Weighted_Deviation']
+                if pd.isna(prev):
+                    return '—'
+                diff = curr - prev
+                if abs(diff) < 1e-9:
+                    return '→ 0.00s'
+                arrow = '↑' if diff > 0 else '↓'
+                return f'{arrow} {abs(diff):.2f}s'
+
+            t['Change vs Previous Period'] = t.apply(_fmt_dev_change, axis=1)
+            display_t = t[['label', 'Weighted_Deviation', 'Change vs Previous Period']].copy()
+            display_t.columns = [
+                gran_period_label, f'{dim} ACT-Weighted Deviation (sec)',
+                'Change vs Previous Period',
+            ]
+            sty = display_t.style.format(
+                {f'{dim} ACT-Weighted Deviation (sec)': '{:.2f}'}
+            ).map(_trend_change_css, subset=['Change vs Previous Period'])
+            st.dataframe(sty, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No trend data available for {dim}.")
 
     sup_tab, tt_tab, part_tab = st.tabs(["All Suppliers", "All Tooling Types", "All Parts"])
     with sup_tab:
