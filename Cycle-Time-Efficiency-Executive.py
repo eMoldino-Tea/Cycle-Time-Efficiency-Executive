@@ -158,16 +158,46 @@ if current_df.empty:
 # ==========================================================================
 # SHARED UI HELPERS
 # ==========================================================================
-def fws_card(name, summary):
-    """Fast / Within / Slow summary card for one dimension (Supplier / Tooling
-    Type / Part): total count plus each tier's count and percentage."""
+def _trend_snippet(curr_count, prev_count):
+    """Small inline period-over-period trend indicator.
+
+    Color rule: decrease vs previous period = green, increase = red,
+    regardless of whether the metric itself is a Fast or Slow count.
+    """
+    if prev_count == 0 and curr_count == 0:
+        return f'<span style="color:{GREY};font-size:.78rem;">&#8594; no change vs previous period</span>'
+    elif prev_count == 0:
+        return (f'<span style="color:{RED};font-size:.78rem;">&#9650; +{curr_count} '
+                f'vs previous period (was 0)</span>')
+    change = curr_count - prev_count
+    pct_change = change / prev_count * 100
+    if change < 0:
+        return (f'<span style="color:{GREEN};font-size:.78rem;">&#9660; {abs(change)} '
+                f'({abs(pct_change):.1f}%) vs previous period</span>')
+    elif change > 0:
+        return (f'<span style="color:{RED};font-size:.78rem;">&#9650; {change} '
+                f'({pct_change:.1f}%) vs previous period</span>')
+    return f'<span style="color:{GREY};font-size:.78rem;">&#8594; no change vs previous period</span>'
+
+
+def dimension_card(name, summary, fast_trend, slow_trend):
+    """Combined Fast / Within / Slow summary + trend card for one dimension
+    (Supplier / Tooling Type / Part): total count, each tier's count and
+    percentage, and a period-over-period trend indicator on the Fast and
+    Slow tiers.
+
+    fast_trend / slow_trend: (curr_count, prev_count) tuples.
+    """
     total = summary['total']
     noun = name + "s"  # "Suppliers" / "Tooling Types" / "Parts"
 
-    def _row(label, n, pct, color):
+    def _row(label, n, pct, color, trend=None):
         pct_txt = f"{pct:.1f}%" if pct is not None else "—"
-        return (f'<div class="kpi-row"><span class="l">{label}</span>'
-                f'<span class="v" style="color:{color};">{n:,} ({pct_txt})</span></div>')
+        row = (f'<div class="kpi-row"><span class="l">{label}</span>'
+               f'<span class="v" style="color:{color};">{n:,} ({pct_txt})</span></div>')
+        if trend is not None:
+            row += f'<div style="text-align:right;margin-top:2px;">{_trend_snippet(*trend)}</div>'
+        return row
 
     st.markdown(f"""
     <div class="kpi">
@@ -175,41 +205,9 @@ def fws_card(name, summary):
         <span class="kpi-name">{name}</span>
       </div>
       <div class="kpi-row"><span class="l">Total {noun}</span><span class="v">{total:,}</span></div>
-      {_row('Fast', summary['fast'], summary['pct_fast'], RED)}
+      {_row('Fast', summary['fast'], summary['pct_fast'], RED, fast_trend)}
       {_row('Within', summary['within'], summary['pct_within'], GREEN)}
-      {_row('Slow', summary['slow'], summary['pct_slow'], YELLOW)}
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def trend_card(label, accent_color, curr_count, prev_count):
-    """Dedicated count KPI card with a period-over-period trend indicator.
-
-    Color rule: decrease vs previous period = green, increase = red,
-    regardless of whether the metric itself is a Fast or Slow count.
-    """
-    if prev_count == 0 and curr_count == 0:
-        delta_html = f'<span style="color:{GREY};">&#8594; No change vs previous period</span>'
-    elif prev_count == 0:
-        delta_html = (f'<span style="color:{RED};">&#9650; +{curr_count} '
-                       f'vs previous period (was 0)</span>')
-    else:
-        change = curr_count - prev_count
-        pct_change = change / prev_count * 100
-        if change < 0:
-            delta_html = (f'<span style="color:{GREEN};">&#9660; {abs(change)} '
-                           f'({abs(pct_change):.1f}%) vs previous period</span>')
-        elif change > 0:
-            delta_html = (f'<span style="color:{RED};">&#9650; {change} '
-                           f'({pct_change:.1f}%) vs previous period</span>')
-        else:
-            delta_html = f'<span style="color:{GREY};">&#8594; No change vs previous period</span>'
-
-    st.markdown(f"""
-    <div class="kpi" style="border-left:3px solid {accent_color};">
-      <div class="kpi-top"><span class="kpi-name">{label}</span></div>
-      <div class="kpi-big">{curr_count:,}</div>
-      <div class="kpi-delta">{delta_html}</div>
+      {_row('Slow', summary['slow'], summary['pct_slow'], YELLOW, slow_trend)}
     </div>
     """, unsafe_allow_html=True)
 
@@ -369,10 +367,26 @@ with level1:
             ("Tooling Type", "Tooling Type"),
             ("Part", "Part")]
 
+    # Fast/Slow trend is always the last 30 days vs the 30 days before that,
+    # independent of the sidebar Time Range selector, so the comparison is
+    # always valid (a very wide or narrow selected range would otherwise
+    # produce an empty or meaningless "previous period").
+    _trend_curr = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=30), max_date), labor_rate, machine_rate))
+    _trend_prev = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
+
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
         with col:
-            fws_card(title, core.fast_within_slow_summary(current_df, dim))
+            summary = core.fast_within_slow_summary(current_df, dim)
+            trend_curr_summ = core.fast_within_slow_summary(_trend_curr, dim)
+            trend_prev_summ = core.fast_within_slow_summary(_trend_prev, dim)
+            dimension_card(
+                title, summary,
+                fast_trend=(trend_curr_summ['fast'], trend_prev_summ['fast']),
+                slow_trend=(trend_curr_summ['slow'], trend_prev_summ['slow']),
+            )
 
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
@@ -380,32 +394,9 @@ with level1:
                 st.rerun()
 
     st.markdown(
-        '<div class="legend-note">Clicking "View all" navigates to the Full Ranking and Details tab.</div>',
-        unsafe_allow_html=True,
-    )
-
-    # Dedicated Fast/Slow count KPI cards with period-over-period trend.
-    # Always compares the last 30 days vs the 30 days before that,
-    # independent of the sidebar Time Range selector, so the comparison
-    # is always valid (a very wide or narrow selected range would
-    # otherwise produce an empty or meaningless "previous period").
-    _trend_curr = apply_master_filters(core.apply_financials(
-        date_slice(base_df, max_date - timedelta(days=30), max_date), labor_rate, machine_rate))
-    _trend_prev = apply_master_filters(core.apply_financials(
-        date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
-
-    st.markdown('<div class="section-title">Fast / Slow Trend Indicators</div>', unsafe_allow_html=True)
-    trend_cols = st.columns(3, gap="large")
-    for col, (title, dim) in zip(trend_cols, dims):
-        with col:
-            curr_summ = core.fast_within_slow_summary(_trend_curr, dim)
-            prev_summ = core.fast_within_slow_summary(_trend_prev, dim)
-            trend_card(f"Fast {_dlg_plural[dim]}", RED, curr_summ['fast'], prev_summ['fast'])
-            trend_card(f"Slow {_dlg_plural[dim]}", YELLOW, curr_summ['slow'], prev_summ['slow'])
-
-    st.markdown(
-        '<div class="legend-note">Trend compares the last 30 days against the '
-        'prior 30-day period. Green = decrease vs previous period, Red = increase.</div>',
+        '<div class="legend-note">Clicking "View all" navigates to the Full Ranking and Details tab. '
+        'Fast/Slow trend compares the last 30 days against the prior 30-day period '
+        '(green = decrease, red = increase).</div>',
         unsafe_allow_html=True,
     )
 
