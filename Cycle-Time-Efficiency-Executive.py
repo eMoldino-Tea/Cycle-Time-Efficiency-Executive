@@ -63,11 +63,13 @@ header {background-color:transparent !important;}
 
 /* KPI scorecard */
 .kpi {background-color:#1a1d26; border-radius:14px; padding:22px 24px; border:1px solid #2d3748;
-  box-shadow:0 4px 6px -1px rgba(0,0,0,.2); height:100%;}
+  box-shadow:0 4px 6px -1px rgba(0,0,0,.2); height:100%; margin-bottom:16px;}
 .kpi-top {display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
 .kpi-name {font-size:1.05rem; font-weight:600; color:#cbd5e1; letter-spacing:.3px;}
 .kpi-row {display:flex; justify-content:space-between; margin-top:14px; font-size:.95rem;}
 .kpi-row .l {color:#94a3b8;} .kpi-row .v {font-weight:700; color:#e2e8f0;}
+.kpi-big {font-size:2.2rem; font-weight:800; line-height:1; color:#fff; margin-top:4px;}
+.kpi-delta {margin-top:12px; font-size:.9rem; font-weight:700; padding-top:10px; border-top:1px solid #2d3748;}
 .legend-note {color:#64748b; font-size:.82rem; margin-top:6px;}
 </style>
 """, unsafe_allow_html=True)
@@ -180,6 +182,38 @@ def fws_card(name, summary):
     """, unsafe_allow_html=True)
 
 
+def trend_card(label, accent_color, curr_count, prev_count):
+    """Dedicated count KPI card with a period-over-period trend indicator.
+
+    Color rule: decrease vs previous period = green, increase = red,
+    regardless of whether the metric itself is a Fast or Slow count.
+    """
+    if prev_count == 0 and curr_count == 0:
+        delta_html = f'<span style="color:{GREY};">&#8594; No change vs previous period</span>'
+    elif prev_count == 0:
+        delta_html = (f'<span style="color:{RED};">&#9650; +{curr_count} '
+                       f'vs previous period (was 0)</span>')
+    else:
+        change = curr_count - prev_count
+        pct_change = change / prev_count * 100
+        if change < 0:
+            delta_html = (f'<span style="color:{GREEN};">&#9660; {abs(change)} '
+                           f'({abs(pct_change):.1f}%) vs previous period</span>')
+        elif change > 0:
+            delta_html = (f'<span style="color:{RED};">&#9650; {change} '
+                           f'({pct_change:.1f}%) vs previous period</span>')
+        else:
+            delta_html = f'<span style="color:{GREY};">&#8594; No change vs previous period</span>'
+
+    st.markdown(f"""
+    <div class="kpi" style="border-left:3px solid {accent_color};">
+      <div class="kpi-top"><span class="kpi-name">{label}</span></div>
+      <div class="kpi-big">{curr_count:,}</div>
+      <div class="kpi-delta">{delta_html}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # ---- conditional-format stylers (preserve original number formats) ---------
 RANK_FMT = {
     "Hours Gained": "{:.2f}", "Hours Lost": "{:.2f}", "Net Hours": "{:.2f}",
@@ -265,9 +299,9 @@ def _bucket_label(bucket_ts, freq):
 st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashboard</div>', unsafe_allow_html=True)
 st.markdown(
     f'<div class="dash-sub">'
-    f'Fast: &lt;95% CT Efficiency &nbsp;|&nbsp; '
-    f'Within: 95%–105% CT Efficiency &nbsp;|&nbsp; '
-    f'Slow: &gt;105% CT Efficiency'
+    f'Fast (Gain): &gt;105% CT Efficiency &nbsp;|&nbsp; '
+    f'Within (Neutral): 95%–105% CT Efficiency &nbsp;|&nbsp; '
+    f'Slow (Loss): &lt;95% CT Efficiency'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -347,6 +381,31 @@ with level1:
 
     st.markdown(
         '<div class="legend-note">Clicking "View all" navigates to the Full Ranking and Details tab.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Dedicated Fast/Slow count KPI cards with period-over-period trend.
+    # Always compares the last 30 days vs the 30 days before that,
+    # independent of the sidebar Time Range selector, so the comparison
+    # is always valid (a very wide or narrow selected range would
+    # otherwise produce an empty or meaningless "previous period").
+    _trend_curr = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=30), max_date), labor_rate, machine_rate))
+    _trend_prev = apply_master_filters(core.apply_financials(
+        date_slice(base_df, max_date - timedelta(days=60), max_date - timedelta(days=30)), labor_rate, machine_rate))
+
+    st.markdown('<div class="section-title">Fast / Slow Trend Indicators</div>', unsafe_allow_html=True)
+    trend_cols = st.columns(3, gap="large")
+    for col, (title, dim) in zip(trend_cols, dims):
+        with col:
+            curr_summ = core.fast_within_slow_summary(_trend_curr, dim)
+            prev_summ = core.fast_within_slow_summary(_trend_prev, dim)
+            trend_card(f"Fast {_dlg_plural[dim]}", RED, curr_summ['fast'], prev_summ['fast'])
+            trend_card(f"Slow {_dlg_plural[dim]}", YELLOW, curr_summ['slow'], prev_summ['slow'])
+
+    st.markdown(
+        '<div class="legend-note">Trend compares the last 30 days against the '
+        'prior 30-day period. Green = decrease vs previous period, Red = increase.</div>',
         unsafe_allow_html=True,
     )
 

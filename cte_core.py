@@ -314,15 +314,20 @@ def format_hm(hours_float):
 
 
 def performance_status_from_eff(ct_eff_wt):
-    """Preserved 3-tier mapping used by detailed & ranking tables."""
+    """3-tier mapping used by detailed & ranking tables.
+
+    Gain (Overall Efficiency > 105%)          -> Fast
+    Neutral (95% <= Overall Efficiency <= 105%) -> Within
+    Loss (Overall Efficiency < 95%)            -> Slow
+    """
     if pd.isna(ct_eff_wt):
         return 'Within'
     elif ct_eff_wt > FAST_THRESHOLD:
-        return 'Slow'   # CTE > 105% → running slow relative to expected
+        return 'Fast'   # Gain: CTE > 105%
     elif ct_eff_wt < SLOW_THRESHOLD:
-        return 'Fast'   # CTE < 95% → running fast relative to expected
+        return 'Slow'   # Loss: CTE < 95%
     else:
-        return 'Within'
+        return 'Within'  # Neutral: 95%-105% inclusive
 
 
 # ==========================================================================
@@ -451,10 +456,7 @@ def generate_ranking_table_data(df, col):
         col_order.insert(part_idx + 1, 'Product')
         agg = agg[col_order]
 
-    agg['Performance Status'] = agg['Overall Efficiency %'].apply(
-        lambda x: 'Slow' if pd.notna(x) and x > FAST_THRESHOLD
-        else ('Fast' if pd.notna(x) and x < SLOW_THRESHOLD else 'Within')
-    )
+    agg['Performance Status'] = agg['Overall Efficiency %'].apply(performance_status_from_eff)
     return agg
 
 
