@@ -352,19 +352,36 @@ level1, level3 = st.tabs([
 
 # Navigation: fires once after a "View All" button click to switch tabs programmatically.
 # Placed outside all tab blocks so the iframe renders visible regardless of active tab.
+# Polls for each tab element instead of using a fixed delay, since Streamlit only
+# renders a tab's content (including nested sub-tabs) after it becomes active, and
+# how long that takes depends on how much content that tab holds.
 _nav_target = st.session_state.pop('_nav_l3', None)
 if _nav_target is not None:
     _sub_idx = _nav_target  # 0=Suppliers, 1=Tooling Types, 2=Parts
     components.html(f"""
 <script>
 (function() {{
-    function click(idx, cb) {{
-        var t = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-        if (t && t[idx]) {{ t[idx].click(); if (cb) setTimeout(cb, 600); }}
+    function findTabs() {{
+        var selectors = ['[data-baseweb="tab"]', 'button[role="tab"]', '.stTabs button'];
+        for (var i = 0; i < selectors.length; i++) {{
+            var els = window.parent.document.querySelectorAll(selectors[i]);
+            if (els && els.length > 0) return els;
+        }}
+        return null;
+    }}
+    function clickWhenReady(idx, cb, attemptsLeft) {{
+        if (attemptsLeft === undefined) attemptsLeft = 40;  // up to ~4s of polling
+        var tabs = findTabs();
+        if (tabs && tabs[idx]) {{
+            tabs[idx].click();
+            if (cb) setTimeout(cb, 300);
+        }} else if (attemptsLeft > 0) {{
+            setTimeout(function() {{ clickWhenReady(idx, cb, attemptsLeft - 1); }}, 100);
+        }}
     }}
     // Step 1: switch to "Full Ranking and Details" (main tab index 1)
-    // Step 2: after 600 ms switch to the sub-tab (indices 2, 3, 4)
-    setTimeout(function() {{ click(1, function() {{ click(2 + {_sub_idx}, null); }}); }}, 150);
+    // Step 2: once its sub-tabs exist, switch to the target sub-tab (indices 2, 3, 4)
+    clickWhenReady(1, function() {{ clickWhenReady(2 + {_sub_idx}, null); }});
 }})();
 </script>
 """, height=0)
