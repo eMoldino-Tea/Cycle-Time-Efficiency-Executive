@@ -352,36 +352,42 @@ level1, level3 = st.tabs([
 
 # Navigation: fires once after a "View All" button click to switch tabs programmatically.
 # Placed outside all tab blocks so the iframe renders visible regardless of active tab.
-# Polls for each tab element instead of using a fixed delay, since Streamlit only
+# Matches tab buttons by their exact visible text, scoped strictly to elements inside
+# a div[data-testid="stTabs"] container (Streamlit's actual tab-bar wrapper) — never
+# by raw page-wide index — so this can never click an unrelated element (e.g. a Plotly
+# chart's download-as-PNG toolbar button) that happens to share a generic selector.
+# Also polls for the element instead of using a fixed delay, since Streamlit only
 # renders a tab's content (including nested sub-tabs) after it becomes active, and
 # how long that takes depends on how much content that tab holds.
 _nav_target = st.session_state.pop('_nav_l3', None)
 if _nav_target is not None:
-    _sub_idx = _nav_target  # 0=Suppliers, 1=Tooling Types, 2=Parts
+    _sub_tab_label = _nav_target  # exact sub-tab text, e.g. "All Suppliers"
     components.html(f"""
 <script>
 (function() {{
-    function findTabs() {{
-        var selectors = ['[data-baseweb="tab"]', 'button[role="tab"]', '.stTabs button'];
-        for (var i = 0; i < selectors.length; i++) {{
-            var els = window.parent.document.querySelectorAll(selectors[i]);
-            if (els && els.length > 0) return els;
+    function findTabByText(text) {{
+        var containers = window.parent.document.querySelectorAll('div[data-testid="stTabs"]');
+        for (var c = 0; c < containers.length; c++) {{
+            var tabs = containers[c].querySelectorAll('[data-baseweb="tab"]');
+            for (var i = 0; i < tabs.length; i++) {{
+                if (tabs[i].innerText.trim() === text) return tabs[i];
+            }}
         }}
         return null;
     }}
-    function clickWhenReady(idx, cb, attemptsLeft) {{
+    function clickWhenReady(text, cb, attemptsLeft) {{
         if (attemptsLeft === undefined) attemptsLeft = 40;  // up to ~4s of polling
-        var tabs = findTabs();
-        if (tabs && tabs[idx]) {{
-            tabs[idx].click();
+        var btn = findTabByText(text);
+        if (btn) {{
+            btn.click();
             if (cb) setTimeout(cb, 300);
         }} else if (attemptsLeft > 0) {{
-            setTimeout(function() {{ clickWhenReady(idx, cb, attemptsLeft - 1); }}, 100);
+            setTimeout(function() {{ clickWhenReady(text, cb, attemptsLeft - 1); }}, 100);
         }}
     }}
-    // Step 1: switch to "Full Ranking and Details" (main tab index 1)
-    // Step 2: once its sub-tabs exist, switch to the target sub-tab (indices 2, 3, 4)
-    clickWhenReady(1, function() {{ clickWhenReady(2 + {_sub_idx}, null); }});
+    clickWhenReady("Full Ranking and Details", function() {{
+        clickWhenReady({_sub_tab_label!r}, null);
+    }});
 }})();
 </script>
 """, height=0)
@@ -391,7 +397,8 @@ if _nav_target is not None:
 # ==========================================================================
 with level1:
     _dlg_plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
-    _dim_tab_idx = {"Supplier": 0, "Tooling Type": 1, "Part": 2}
+    # Exact text of each Full Ranking and Details sub-tab (must match st.tabs([...]) below)
+    _dim_tab_label = {"Supplier": "All Suppliers", "Tooling Type": "All Tooling Types", "Part": "All Parts"}
 
     dims = [("Supplier", "Supplier"),
             ("Tooling Type", "Tooling Type"),
@@ -420,7 +427,7 @@ with level1:
 
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
-                st.session_state['_nav_l3'] = _dim_tab_idx[dim]
+                st.session_state['_nav_l3'] = _dim_tab_label[dim]
                 st.rerun()
 
     st.markdown(
