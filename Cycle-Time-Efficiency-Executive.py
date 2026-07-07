@@ -63,11 +63,15 @@ header {background-color:transparent !important;}
    auto-generated st-key-<key> class, so this never affects any other
    button (View all, download, etc.) elsewhere in the app.
 
-   Visual hierarchy: main tabs use a bigger, bolder underline style
-   (primary navigation); sub-tabs use smaller, filled pill/chip buttons
-   in a distinct accent color (secondary navigation nested under it). */
+   Visual hierarchy: main tabs are a bold underline style (classic
+   primary-navigation pattern, larger text). Sub-tabs are a grouped
+   "segmented control" — one contained pill housing all three options
+   with the active one shown as a filled chip inside it — a distinct
+   shape/pattern (not just a smaller copy of the main tabs) that reads
+   as secondary navigation nested underneath. */
 .st-key-toptabs button {
-  font-size:1.15rem !important; font-weight:700 !important; padding:.5rem .25rem !important;
+  font-size:1.2rem !important; font-weight:700 !important; padding:.55rem .3rem !important;
+  letter-spacing:.2px !important;
 }
 .st-key-toptabs button[kind="primary"] {
   background-color:transparent !important; border:none !important; color:#fff !important;
@@ -78,36 +82,35 @@ header {background-color:transparent !important;}
 }
 .st-key-toptabs button[kind="secondary"] {
   background-color:transparent !important; border:none !important;
-  border-bottom:4px solid transparent !important; color:#94a3b8 !important; border-radius:0 !important;
+  border-bottom:4px solid transparent !important; color:#64748b !important; border-radius:0 !important;
 }
 .st-key-toptabs button[kind="secondary"]:hover {
-  color:#e2e8f0 !important; background-color:rgba(255,255,255,.03) !important;
+  color:#cbd5e1 !important; background-color:rgba(255,255,255,.03) !important;
 }
 .st-key-toptabs {
-  border-bottom:1px solid #2d3748; margin-bottom:1.5rem; padding-bottom:0;
+  border-bottom:1px solid #2d3748; margin-bottom:1.75rem; padding-bottom:0;
 }
 
+.st-key-subtabs {
+  background-color:#1a1d26 !important; border:1px solid #2d3748 !important;
+  border-radius:10px !important; padding:4px !important; margin-top:.25rem; margin-bottom:1.5rem;
+}
 .st-key-subtabs button {
-  font-size:.85rem !important; padding:.25rem .1rem !important;
+  font-size:.85rem !important; font-weight:600 !important; padding:.4rem 1rem !important;
   background-color:transparent !important; border:none !important;
-  border-radius:0 !important; box-shadow:none !important;
+  border-radius:7px !important; box-shadow:none !important;
 }
 .st-key-subtabs button[kind="primary"] {
-  font-weight:700 !important; color:#e2e8f0 !important;
-  border-bottom:2px solid #64748b !important;
+  background-color:#2d3748 !important; color:#fff !important;
 }
 .st-key-subtabs button[kind="primary"]:hover {
-  color:#fff !important;
+  background-color:#3a4a63 !important;
 }
 .st-key-subtabs button[kind="secondary"] {
-  font-weight:400 !important; color:#94a3b8 !important;
-  border-bottom:2px solid transparent !important;
+  color:#94a3b8 !important;
 }
 .st-key-subtabs button[kind="secondary"]:hover {
-  color:#e2e8f0 !important;
-}
-.st-key-subtabs {
-  margin-top:.5rem; margin-bottom:1.25rem;
+  color:#e2e8f0 !important; background-color:rgba(255,255,255,.04) !important;
 }
 
 /* KPI scorecard */
@@ -531,7 +534,8 @@ else:
 </div>""", unsafe_allow_html=True)
             with pw_right:
                 st.markdown(
-                    '<div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">'
+                    '<div style="color:#e2e8f0;font-size:1.05rem;font-weight:600;'
+                    'text-align:center;margin-bottom:6px;">'
                     'Fast / Within / Slow Distribution</div>',
                     unsafe_allow_html=True)
                 st.plotly_chart(pie, use_container_width=True, key=f"pie_{keyns}")
@@ -678,14 +682,18 @@ else:
 
     st.session_state.setdefault('active_sub_tab', "All Suppliers")
     _SUB_TABS = ["All Suppliers", "All Tooling Types", "All Parts"]
-    with st.container(key="subtabs"):
-        _sub_cols = st.columns([1, 1, 1, 5])
-        for _scol, _sname in zip(_sub_cols, _SUB_TABS):
-            with _scol:
-                if st.button(_sname, key=f"subtab_{_sname}", use_container_width=False,
-                             type="primary" if st.session_state['active_sub_tab'] == _sname else "secondary"):
-                    st.session_state['active_sub_tab'] = _sname
-                    st.rerun()
+    # Outer narrow column keeps the segmented-control pill sized to its
+    # content instead of stretching across the full row width.
+    _subtabs_box, _ = st.columns([2, 3])
+    with _subtabs_box:
+        with st.container(key="subtabs"):
+            _sub_cols = st.columns(3)
+            for _scol, _sname in zip(_sub_cols, _SUB_TABS):
+                with _scol:
+                    if st.button(_sname, key=f"subtab_{_sname}", use_container_width=True,
+                                 type="primary" if st.session_state['active_sub_tab'] == _sname else "secondary"):
+                        st.session_state['active_sub_tab'] = _sname
+                        st.rerun()
 
     if st.session_state['active_sub_tab'] == "All Suppliers":
         render_dimension_view(gran_df, "Supplier", "supplier")
