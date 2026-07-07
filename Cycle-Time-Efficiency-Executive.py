@@ -466,7 +466,14 @@ else:
         summ = core.fast_within_slow_summary(view_df, dim)
         eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
 
-        # Fastest / Slowest Performer widgets
+        # First row: Total {dim}s / Overall CT Efficiency
+        m1, m2 = st.columns(2)
+        m1.metric(f"Total {dim}s", f"{summ['total']:,}")
+        overall = core.calc_weighted_eff(view_df)
+        m2.metric("Overall CT Efficiency",
+                  f"{overall:.1f}%" if pd.notna(overall) else "N/A")
+
+        # Second row: Fastest Performer | Slowest Performer | Fast/Within/Slow Distribution
         if not eff.empty:
             _fin = (view_df.groupby(dim)
                            .agg(Financial_Gain=('Financial_Gain', 'sum'),
@@ -482,7 +489,26 @@ else:
             def _fin_label(net):
                 return f"+${net:,.0f} Gained" if net >= 0 else f"-${abs(net):,.0f} Lost"
 
-            pw1, pw2 = st.columns(2)
+            _status_n = eff['Performance Status'].value_counts()
+            _pie_labels = ['Fast', 'Within', 'Slow']
+            _pie_values = [int(_status_n.get(l, 0)) for l in _pie_labels]
+            _pie_colors = [RED, GREEN, YELLOW]
+            pie = go.Figure(go.Pie(
+                labels=_pie_labels, values=_pie_values, hole=0.55,
+                marker=dict(colors=_pie_colors, line=dict(color='#0f1117', width=2)),
+                textinfo='label+percent', textfont=dict(color='#0f1117', size=11, weight="bold"),
+                hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>",
+            ))
+            pie.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=210, margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5,
+                            font=dict(color="#e2e8f0", size=10)),
+                font=dict(color="#e2e8f0"),
+            )
+
+            pw1, pw2, pw3 = st.columns(3)
             with pw1:
                 st.markdown(f"""
 <div style="background:#1a1d26;border:1px solid #2d3748;
@@ -501,38 +527,12 @@ else:
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{slowest[dim]}</div>
   <div style="font-size:1rem;font-weight:600;"><span style="color:{YELLOW};">{slowest['Efficiency_%']:.2f}%</span> &nbsp;|&nbsp; <span style="color:#e2e8f0;">{_fin_label(slowest['Net_Financial'])}</span></div>
 </div>""", unsafe_allow_html=True)
-
-        m1, m2 = st.columns(2)
-        m1.metric(f"Total {dim}s", f"{summ['total']:,}")
-        overall = core.calc_weighted_eff(view_df)
-        m2.metric("Overall CT Efficiency",
-                  f"{overall:.1f}%" if pd.notna(overall) else "N/A")
-
-        # Fast / Within / Slow distribution — donut chart (distribution only,
-        # no other metrics on this chart).
-        if not eff.empty:
-            _status_n = eff['Performance Status'].value_counts()
-            _pie_labels = ['Fast', 'Within', 'Slow']
-            _pie_values = [int(_status_n.get(l, 0)) for l in _pie_labels]
-            _pie_colors = [RED, GREEN, YELLOW]
-
-            st.markdown('<div class="section-title">Fast / Within / Slow Distribution</div>',
-                        unsafe_allow_html=True)
-            pie = go.Figure(go.Pie(
-                labels=_pie_labels, values=_pie_values, hole=0.55,
-                marker=dict(colors=_pie_colors, line=dict(color='#0f1117', width=2)),
-                textinfo='label+percent', textfont=dict(color='#0f1117', size=13, weight="bold"),
-                hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>",
-            ))
-            pie.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                height=340, margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=True,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5,
-                            font=dict(color="#e2e8f0")),
-                font=dict(color="#e2e8f0"),
-            )
-            st.plotly_chart(pie, use_container_width=True, key=f"pie_{keyns}")
+            with pw3:
+                st.markdown(
+                    '<div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">'
+                    'Fast / Within / Slow Distribution</div>',
+                    unsafe_allow_html=True)
+                st.plotly_chart(pie, use_container_width=True, key=f"pie_{keyns}")
 
         if not eff.empty:
             bar = go.Figure()
