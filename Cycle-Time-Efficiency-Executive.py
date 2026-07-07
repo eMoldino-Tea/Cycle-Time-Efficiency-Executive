@@ -27,7 +27,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import timedelta
 
 import cte_core as core
@@ -59,7 +58,27 @@ header {background-color:transparent !important;}
 .section-title {font-size:1.4rem; font-weight:600; color:#fff; margin-top:.5rem; margin-bottom:1rem;
   padding-bottom:.5rem; border-bottom:1px solid #2d3748;}
 
-[data-testid="stTabs"] button {font-size:1.05rem; font-weight:600;}
+/* Session-state-driven tab bar (buttons, not st.tabs). Scoped to the
+   st.container(key="toptabs"/"subtabs") wrappers via Streamlit's
+   auto-generated st-key-<key> class, so this never affects any other
+   button (View all, download, etc.) elsewhere in the app. */
+.st-key-toptabs button[kind="primary"], .st-key-subtabs button[kind="primary"] {
+  background-color:transparent !important; border:none !important; color:#fff !important;
+  border-bottom:3px solid #d9534f !important; border-radius:0 !important; box-shadow:none !important;
+}
+.st-key-toptabs button[kind="primary"]:hover, .st-key-subtabs button[kind="primary"]:hover {
+  background-color:rgba(217,83,79,.08) !important; color:#fff !important;
+}
+.st-key-toptabs button[kind="secondary"], .st-key-subtabs button[kind="secondary"] {
+  background-color:transparent !important; border:none !important;
+  border-bottom:3px solid transparent !important; color:#94a3b8 !important; border-radius:0 !important;
+}
+.st-key-toptabs button[kind="secondary"]:hover, .st-key-subtabs button[kind="secondary"]:hover {
+  color:#e2e8f0 !important; background-color:rgba(255,255,255,.03) !important;
+}
+.st-key-toptabs, .st-key-subtabs {
+  border-bottom:1px solid #2d3748; margin-bottom:1.5rem; padding-bottom:0;
+}
 
 /* KPI scorecard */
 .kpi {background-color:#1a1d26; border-radius:18px; padding:32px 30px; border:1px solid #2d3748;
@@ -346,35 +365,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-level1, level3 = st.tabs([
-    "Executive Summary", "Full Ranking and Details",
-])
-
-# Navigation: fires once after a "View All" button click to switch tabs programmatically.
-# Placed outside all tab blocks so the iframe renders visible regardless of active tab.
-_nav_target = st.session_state.pop('_nav_l3', None)
-if _nav_target is not None:
-    _sub_idx = _nav_target  # 0=Suppliers, 1=Tooling Types, 2=Parts
-    components.html(f"""
-<script>
-(function() {{
-    function click(idx, cb) {{
-        var t = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-        if (t && t[idx]) {{ t[idx].click(); if (cb) setTimeout(cb, 600); }}
-    }}
-    // Step 1: switch to "Full Ranking and Details" (main tab index 1)
-    // Step 2: after 600 ms switch to the sub-tab (indices 2, 3, 4)
-    setTimeout(function() {{ click(1, function() {{ click(2 + {_sub_idx}, null); }}); }}, 150);
-}})();
-</script>
-""", height=0)
+# Top-level navigation: plain session-state + buttons instead of st.tabs(),
+# so "View all" can switch sections reliably via pure Streamlit state (no
+# browser DOM manipulation, which proved fragile — see git history).
+st.session_state.setdefault('active_top_tab', "Executive Summary")
+_TOP_TABS = ["Executive Summary", "Full Ranking and Details"]
+with st.container(key="toptabs"):
+    _top_cols = st.columns(len(_TOP_TABS))
+    for _tcol, _tname in zip(_top_cols, _TOP_TABS):
+        with _tcol:
+            if st.button(_tname, key=f"toptab_{_tname}", use_container_width=True,
+                         type="primary" if st.session_state['active_top_tab'] == _tname else "secondary"):
+                st.session_state['active_top_tab'] = _tname
+                st.rerun()
 
 # ==========================================================================
 # LEVEL 1 — EXECUTIVE OVERVIEW
 # ==========================================================================
-with level1:
+if st.session_state['active_top_tab'] == "Executive Summary":
     _dlg_plural = {"Supplier": "Suppliers", "Tooling Type": "Tooling Types", "Part": "Parts"}
-    _dim_tab_idx = {"Supplier": 0, "Tooling Type": 1, "Part": 2}
+    # Exact sub-tab label to jump to (must match _SUB_TABS below)
+    _dim_sub_tab_label = {"Supplier": "All Suppliers", "Tooling Type": "All Tooling Types", "Part": "All Parts"}
 
     dims = [("Supplier", "Supplier"),
             ("Tooling Type", "Tooling Type"),
@@ -403,7 +414,8 @@ with level1:
 
             if st.button(f"View all {_dlg_plural[dim].lower()}  →", key=f"cardbtn_{dim}",
                          use_container_width=True):
-                st.session_state['_nav_l3'] = _dim_tab_idx[dim]
+                st.session_state['active_top_tab'] = "Full Ranking and Details"
+                st.session_state['active_sub_tab'] = _dim_sub_tab_label[dim]
                 st.rerun()
 
     st.markdown(
@@ -416,7 +428,7 @@ with level1:
 # ==========================================================================
 # LEVEL 3 — FULL RANKING AND DETAILS
 # ==========================================================================
-with level3:
+else:
     st.markdown(
         "<div class='legend-note'>Use the <b>Master Filter</b> in the sidebar "
         "(OEM Business Division, Region, Supplier, Toolmaker, Plant, Tooling Type, "
@@ -635,12 +647,22 @@ with level3:
         else:
             st.info(f"No trend data available for {dim}.")
 
-    sup_tab, tt_tab, part_tab = st.tabs(["All Suppliers", "All Tooling Types", "All Parts"])
-    with sup_tab:
+    st.session_state.setdefault('active_sub_tab', "All Suppliers")
+    _SUB_TABS = ["All Suppliers", "All Tooling Types", "All Parts"]
+    with st.container(key="subtabs"):
+        _sub_cols = st.columns(len(_SUB_TABS))
+        for _scol, _sname in zip(_sub_cols, _SUB_TABS):
+            with _scol:
+                if st.button(_sname, key=f"subtab_{_sname}", use_container_width=True,
+                             type="primary" if st.session_state['active_sub_tab'] == _sname else "secondary"):
+                    st.session_state['active_sub_tab'] = _sname
+                    st.rerun()
+
+    if st.session_state['active_sub_tab'] == "All Suppliers":
         render_dimension_view(gran_df, "Supplier", "supplier")
-    with tt_tab:
+    elif st.session_state['active_sub_tab'] == "All Tooling Types":
         render_dimension_view(gran_df, "Tooling Type", "toolingtype")
-    with part_tab:
+    else:
         render_dimension_view(gran_df, "Part", "part")
 
 # ==========================================================================
