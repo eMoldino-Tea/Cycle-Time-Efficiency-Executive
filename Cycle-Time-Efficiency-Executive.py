@@ -456,13 +456,6 @@ if st.session_state['active_top_tab'] == "Executive Summary":
 # LEVEL 3 — FULL RANKING AND DETAILS
 # ==========================================================================
 else:
-    st.markdown(
-        "<div class='legend-note'>Use the <b>Master Filter</b> in the sidebar "
-        "(OEM Business Division, Region, Supplier, Toolmaker, Plant, Tooling Type, "
-        "Product, Part, Tooling) to scope every tab, including these drill-downs.</div>",
-        unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
     gran_df = current_df
     if gran_df.empty:
         st.warning("No data for the selected filters.")
@@ -515,24 +508,31 @@ else:
         m2.metric("Overall CT Efficiency",
                   f"{overall:.1f}%" if pd.notna(overall) else "N/A")
 
-        # Fast / Within / Slow breakdown
+        # Fast / Within / Slow distribution — donut chart (distribution only,
+        # no other metrics on this chart).
         if not eff.empty:
             _status_n = eff['Performance Status'].value_counts()
-            _total_n = len(eff)
-            def _bd_pct(n):
-                return f"{n / _total_n * 100:.1f}%" if _total_n else "—"
-            bd1, bd2, bd3 = st.columns(3)
-            for _col, _label, _color in [(bd1, 'Fast', RED), (bd2, 'Within', GREEN), (bd3, 'Slow', YELLOW)]:
-                _n = int(_status_n.get(_label, 0))
-                with _col:
-                    st.markdown(f"""
-<div style="background:#1a1d26;border:1px solid #2d3748;border-left:3px solid {_color};
-     border-radius:10px;padding:12px 18px;margin-bottom:12px;">
-  <div style="color:#94a3b8;font-size:.82rem;margin-bottom:4px;">{_label}</div>
-  <div style="color:{_color};font-size:1.3rem;font-weight:700;">{_n:,}
-    <span style="color:#94a3b8;font-size:.85rem;font-weight:400;">({_bd_pct(_n)})</span>
-  </div>
-</div>""", unsafe_allow_html=True)
+            _pie_labels = ['Fast', 'Within', 'Slow']
+            _pie_values = [int(_status_n.get(l, 0)) for l in _pie_labels]
+            _pie_colors = [RED, GREEN, YELLOW]
+
+            st.markdown('<div class="section-title">Fast / Within / Slow Distribution</div>',
+                        unsafe_allow_html=True)
+            pie = go.Figure(go.Pie(
+                labels=_pie_labels, values=_pie_values, hole=0.55,
+                marker=dict(colors=_pie_colors, line=dict(color='#0f1117', width=2)),
+                textinfo='label+percent', textfont=dict(color='#0f1117', size=13, weight="bold"),
+                hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>",
+            ))
+            pie.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=340, margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=True,
+                legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center", x=0.5,
+                            font=dict(color="#e2e8f0")),
+                font=dict(color="#e2e8f0"),
+            )
+            st.plotly_chart(pie, use_container_width=True, key=f"pie_{keyns}")
 
         if not eff.empty:
             bar = go.Figure()
