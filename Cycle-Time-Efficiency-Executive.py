@@ -62,6 +62,9 @@ header {background-color:transparent !important;}
    st.container(key="toptabs"/"subtabs") wrappers via Streamlit's
    auto-generated st-key-<key> class, so this never affects any other
    button (View all, download, etc.) elsewhere in the app. */
+.st-key-toptabs button, .st-key-subtabs button {
+  font-size:.9rem !important; padding:.35rem .2rem !important;
+}
 .st-key-toptabs button[kind="primary"], .st-key-subtabs button[kind="primary"] {
   background-color:transparent !important; border:none !important; color:#fff !important;
   border-bottom:3px solid #d9534f !important; border-radius:0 !important; box-shadow:none !important;
@@ -371,10 +374,10 @@ st.markdown(
 st.session_state.setdefault('active_top_tab', "Executive Summary")
 _TOP_TABS = ["Executive Summary", "Full Ranking and Details"]
 with st.container(key="toptabs"):
-    _top_cols = st.columns(len(_TOP_TABS))
+    _top_cols = st.columns([1, 1, 4])
     for _tcol, _tname in zip(_top_cols, _TOP_TABS):
         with _tcol:
-            if st.button(_tname, key=f"toptab_{_tname}", use_container_width=True,
+            if st.button(_tname, key=f"toptab_{_tname}", use_container_width=False,
                          type="primary" if st.session_state['active_top_tab'] == _tname else "secondary"):
                 st.session_state['active_top_tab'] = _tname
                 st.rerun()
@@ -650,10 +653,10 @@ else:
     st.session_state.setdefault('active_sub_tab', "All Suppliers")
     _SUB_TABS = ["All Suppliers", "All Tooling Types", "All Parts"]
     with st.container(key="subtabs"):
-        _sub_cols = st.columns(len(_SUB_TABS))
+        _sub_cols = st.columns([1, 1, 1, 5])
         for _scol, _sname in zip(_sub_cols, _SUB_TABS):
             with _scol:
-                if st.button(_sname, key=f"subtab_{_sname}", use_container_width=True,
+                if st.button(_sname, key=f"subtab_{_sname}", use_container_width=False,
                              type="primary" if st.session_state['active_sub_tab'] == _sname else "secondary"):
                     st.session_state['active_sub_tab'] = _sname
                     st.rerun()
