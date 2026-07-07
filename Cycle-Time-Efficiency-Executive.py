@@ -499,20 +499,20 @@ else:
             pie = go.Figure(go.Pie(
                 labels=_pie_labels, values=_pie_values, hole=0.55,
                 marker=dict(colors=_pie_colors, line=dict(color='#0f1117', width=2)),
-                textinfo='label+percent', textfont=dict(color='#0f1117', size=11, weight="bold"),
+                textinfo='label+percent', textfont=dict(color='#0f1117', size=14, weight="bold"),
                 hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>",
             ))
             pie.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                height=210, margin=dict(l=10, r=10, t=10, b=10),
+                height=380, margin=dict(l=10, r=10, t=10, b=10),
                 showlegend=True,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5,
-                            font=dict(color="#e2e8f0", size=10)),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5,
+                            font=dict(color="#e2e8f0", size=12)),
                 font=dict(color="#e2e8f0"),
             )
 
-            pw1, pw2, pw3 = st.columns(3)
-            with pw1:
+            pw_left, pw_right = st.columns([1, 1.4])
+            with pw_left:
                 st.markdown(f"""
 <div style="background:#1a1d26;border:1px solid #2d3748;
      border-left:3px solid {RED};border-radius:10px;
@@ -521,7 +521,6 @@ else:
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{fastest[dim]}</div>
   <div style="font-size:1rem;font-weight:600;"><span style="color:{RED};">{fastest['Efficiency_%']:.2f}%</span> &nbsp;|&nbsp; <span style="color:#e2e8f0;">{_fin_label(fastest['Net_Financial'])}</span></div>
 </div>""", unsafe_allow_html=True)
-            with pw2:
                 st.markdown(f"""
 <div style="background:#1a1d26;border:1px solid #2d3748;
      border-left:3px solid {YELLOW};border-radius:10px;
@@ -530,7 +529,7 @@ else:
   <div style="color:#e2e8f0;font-size:1.2rem;font-weight:700;margin-bottom:4px;">{slowest[dim]}</div>
   <div style="font-size:1rem;font-weight:600;"><span style="color:{YELLOW};">{slowest['Efficiency_%']:.2f}%</span> &nbsp;|&nbsp; <span style="color:#e2e8f0;">{_fin_label(slowest['Net_Financial'])}</span></div>
 </div>""", unsafe_allow_html=True)
-            with pw3:
+            with pw_right:
                 st.markdown(
                     '<div style="color:#94a3b8;font-size:.85rem;margin-bottom:6px;">'
                     'Fast / Within / Slow Distribution</div>',
