@@ -61,26 +61,50 @@ header {background-color:transparent !important;}
 /* Session-state-driven tab bar (buttons, not st.tabs). Scoped to the
    st.container(key="toptabs"/"subtabs") wrappers via Streamlit's
    auto-generated st-key-<key> class, so this never affects any other
-   button (View all, download, etc.) elsewhere in the app. */
-.st-key-toptabs button, .st-key-subtabs button {
-  font-size:.9rem !important; padding:.35rem .2rem !important;
+   button (View all, download, etc.) elsewhere in the app.
+
+   Visual hierarchy: main tabs use a bigger, bolder underline style
+   (primary navigation); sub-tabs use smaller, filled pill/chip buttons
+   in a distinct accent color (secondary navigation nested under it). */
+.st-key-toptabs button {
+  font-size:1.15rem !important; font-weight:700 !important; padding:.5rem .25rem !important;
 }
-.st-key-toptabs button[kind="primary"], .st-key-subtabs button[kind="primary"] {
+.st-key-toptabs button[kind="primary"] {
   background-color:transparent !important; border:none !important; color:#fff !important;
-  border-bottom:3px solid #d9534f !important; border-radius:0 !important; box-shadow:none !important;
+  border-bottom:4px solid #d9534f !important; border-radius:0 !important; box-shadow:none !important;
 }
-.st-key-toptabs button[kind="primary"]:hover, .st-key-subtabs button[kind="primary"]:hover {
+.st-key-toptabs button[kind="primary"]:hover {
   background-color:rgba(217,83,79,.08) !important; color:#fff !important;
 }
-.st-key-toptabs button[kind="secondary"], .st-key-subtabs button[kind="secondary"] {
+.st-key-toptabs button[kind="secondary"] {
   background-color:transparent !important; border:none !important;
-  border-bottom:3px solid transparent !important; color:#94a3b8 !important; border-radius:0 !important;
+  border-bottom:4px solid transparent !important; color:#94a3b8 !important; border-radius:0 !important;
 }
-.st-key-toptabs button[kind="secondary"]:hover, .st-key-subtabs button[kind="secondary"]:hover {
+.st-key-toptabs button[kind="secondary"]:hover {
   color:#e2e8f0 !important; background-color:rgba(255,255,255,.03) !important;
 }
-.st-key-toptabs, .st-key-subtabs {
+.st-key-toptabs {
   border-bottom:1px solid #2d3748; margin-bottom:1.5rem; padding-bottom:0;
+}
+
+.st-key-subtabs button {
+  font-size:.82rem !important; font-weight:600 !important; padding:.3rem .95rem !important;
+  border-radius:999px !important; box-shadow:none !important;
+}
+.st-key-subtabs button[kind="primary"] {
+  background-color:#38bdf8 !important; border:1px solid #38bdf8 !important; color:#0f1117 !important;
+}
+.st-key-subtabs button[kind="primary"]:hover {
+  background-color:#5cc9fa !important; border-color:#5cc9fa !important;
+}
+.st-key-subtabs button[kind="secondary"] {
+  background-color:rgba(255,255,255,.04) !important; border:1px solid #2d3748 !important; color:#94a3b8 !important;
+}
+.st-key-subtabs button[kind="secondary"]:hover {
+  color:#e2e8f0 !important; border-color:#475569 !important;
+}
+.st-key-subtabs {
+  margin-top:.5rem; margin-bottom:1.25rem;
 }
 
 /* KPI scorecard */
