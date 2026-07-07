@@ -88,20 +88,23 @@ header {background-color:transparent !important;}
 }
 
 .st-key-subtabs button {
-  font-size:.82rem !important; font-weight:600 !important; padding:.3rem .95rem !important;
-  border-radius:999px !important; box-shadow:none !important;
+  font-size:.85rem !important; padding:.25rem .1rem !important;
+  background-color:transparent !important; border:none !important;
+  border-radius:0 !important; box-shadow:none !important;
 }
 .st-key-subtabs button[kind="primary"] {
-  background-color:#38bdf8 !important; border:1px solid #38bdf8 !important; color:#0f1117 !important;
+  font-weight:700 !important; color:#e2e8f0 !important;
+  border-bottom:2px solid #64748b !important;
 }
 .st-key-subtabs button[kind="primary"]:hover {
-  background-color:#5cc9fa !important; border-color:#5cc9fa !important;
+  color:#fff !important;
 }
 .st-key-subtabs button[kind="secondary"] {
-  background-color:rgba(255,255,255,.04) !important; border:1px solid #2d3748 !important; color:#94a3b8 !important;
+  font-weight:400 !important; color:#94a3b8 !important;
+  border-bottom:2px solid transparent !important;
 }
 .st-key-subtabs button[kind="secondary"]:hover {
-  color:#e2e8f0 !important; border-color:#475569 !important;
+  color:#e2e8f0 !important;
 }
 .st-key-subtabs {
   margin-top:.5rem; margin-bottom:1.25rem;
