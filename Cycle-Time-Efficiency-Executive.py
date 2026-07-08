@@ -586,10 +586,12 @@ else:
         event = st.dataframe(style_table(det, DETAIL_FMT), use_container_width=True, hide_index=True,
                              on_select="rerun", selection_mode="single-row", key=sel_key)
         if event and event.selection and event.selection.rows:
-            clicked_tool = det.iloc[event.selection.rows[0]]['Tooling ID']
-            if clicked_tool != tool_scope:
-                st.session_state[f'report_tool_{keyns}'] = clicked_tool
-                st.rerun()
+            sel_idx = event.selection.rows[0]
+            if sel_idx < len(det):
+                clicked_tool = det.iloc[sel_idx]['Tooling ID']
+                if clicked_tool != tool_scope:
+                    st.session_state[f'report_tool_{keyns}'] = clicked_tool
+                    st.rerun()
 
     def render_dimension_view(view_df, dim, keyns):
         # --- Overview ---
