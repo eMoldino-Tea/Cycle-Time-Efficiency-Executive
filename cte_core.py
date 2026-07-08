@@ -616,3 +616,11 @@ COMPREHENSIVE_TOOLING_COLS = [
     'Financial Gain', 'Financial Loss', 'Net Financial', 'CT Efficiency of Fast Hours',
     'CT Efficiency of Slow Hours', 'CT Weighted Average Efficiency', 'Performance Status'
 ]
+
+# Same as COMPREHENSIVE_TOOLING_COLS but with the descriptive identity fields
+# (Supplier / Plant / Time Period / Part / Product / Part Name / Hourly Rate)
+# surfaced up front -- used by the entity "report card" breakdown table.
+REPORT_CARD_TOOLING_COLS = (
+    ['Tooling ID', 'Supplier', 'Plant', 'Time Period', 'Part', 'Product', 'Part Name', 'Hourly Rate']
+    + COMPREHENSIVE_TOOLING_COLS[1:]
+)

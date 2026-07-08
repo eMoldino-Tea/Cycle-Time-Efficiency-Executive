@@ -134,6 +134,10 @@ header {background-color:transparent !important;}
 
 /* Bigger, more prominent "View all" buttons */
 .stButton > button {font-size:1.05rem; font-weight:600; padding:.65rem 1rem; border-radius:10px;}
+
+/* Entity "report card" badge (Detailed Analysis: <entity>) */
+.entity-badge {background:#1a2e22; color:#4ade80; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  padding:3px 12px; border-radius:6px; font-size:.95rem; font-weight:600; letter-spacing:.3px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -467,6 +471,126 @@ else:
         st.warning("No data for the selected filters.")
         st.stop()
 
+    def _weekly_efficiency_trend(df):
+        """Weighted CT Efficiency % per week, for the report card's historical trend."""
+        if df.empty:
+            return pd.DataFrame(columns=['bucket', 'Efficiency_%'])
+        d = df.copy()
+        d['bucket'] = d['Date'].dt.to_period('W').dt.start_time
+        g = (d.groupby('bucket')
+               .apply(lambda x: core.calc_weighted_eff(x))
+               .reset_index(name='Efficiency_%')
+               .dropna(subset=['Efficiency_%'])
+               .sort_values('bucket'))
+        return g
+
+    def render_report_card(sub, dim, entity_name, keyns, tool_scope=None):
+        """Report-card page for one entity (or one individual Tooling, when
+        drilled into via the breakdown table below). Fast/Within/Slow
+        Distribution uses each entity's own real, shot-weighted Fast/Within/
+        Slow percentages (already computed by compute_comprehensive_row) --
+        not fabricated data.
+        """
+        scope_df = sub if not tool_scope else sub[sub['Tooling'] == tool_scope]
+        scope_label = tool_scope if tool_scope else entity_name
+        if scope_df.empty:
+            st.info("No data available for this selection.")
+            return
+
+        row = core.compute_comprehensive_row(
+            scope_label, scope_df, "Tooling ID" if tool_scope else dim, period_label)
+
+        st.markdown("<hr style='border-color:#2d3748;margin:1.5rem 0 1rem 0;'>", unsafe_allow_html=True)
+
+        if tool_scope:
+            if st.button(f"← Back to {entity_name}", key=f"rc_back_{keyns}"):
+                st.session_state[f'report_tool_{keyns}'] = None
+                st.session_state[f'rc_nonce_{keyns}'] = st.session_state.get(f'rc_nonce_{keyns}', 0) + 1
+                st.rerun()
+
+        st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;">
+  <span style="font-size:1.3rem;font-weight:700;color:#fff;">Detailed Analysis:</span>
+  <span class="entity-badge">{scope_label}</span>
+</div>""", unsafe_allow_html=True)
+
+        k1, k2, k3, k4 = st.columns(4)
+        ct_eff_wt = row['CT Weighted Average Efficiency']
+        k1.metric("Overall Cycle Time Efficiency %",
+                  f"{ct_eff_wt:.1f}%" if pd.notna(ct_eff_wt) else "N/A")
+        k2.metric("Total Hours Gained (Fast)", core.format_hm(row['Hours Gained']))
+        k3.metric("Total Hours Lost (Slow)", core.format_hm(row['Hours Lost']))
+        k4.metric("Net Financial", f"${row['Net Financial']:,.0f}")
+
+        st.markdown("<hr style='border-color:#2d3748;margin:1.5rem 0;'>", unsafe_allow_html=True)
+
+        tc_left, tc_right = st.columns([1.4, 1])
+        with tc_left:
+            st.markdown('<div class="section-title" style="font-size:1.1rem;">'
+                        'Historical Trend: Cycle Time Efficiency %</div>', unsafe_allow_html=True)
+            trend = _weekly_efficiency_trend(scope_df)
+            if not trend.empty:
+                lfig = go.Figure()
+                lfig.add_trace(go.Scatter(
+                    x=trend['bucket'], y=trend['Efficiency_%'],
+                    mode="lines+markers", line=dict(color="#7dd3fc", width=2.5), marker=dict(size=6),
+                    hovertemplate="<b>%{x|%b %d, %Y}</b><br>Efficiency: %{y:.2f}%<extra></extra>",
+                ))
+                lfig.add_hline(y=100, line_dash="dash", line_color=GREY)
+                lfig.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    height=380, margin=dict(l=10, r=20, t=20, b=10),
+                    xaxis=dict(showgrid=False, tickfont=dict(color="#94a3b8"), title="Date"),
+                    yaxis=dict(showgrid=True, gridcolor="#334155", title="Efficiency_%",
+                               tickfont=dict(color="#94a3b8")),
+                    font=dict(color="#e2e8f0"),
+                )
+                st.plotly_chart(lfig, use_container_width=True, key=f"rc_trend_{keyns}_{scope_label}")
+            else:
+                st.info("Not enough dated data to plot a trend.")
+        with tc_right:
+            st.markdown('<div class="section-title" style="font-size:1.1rem;">'
+                        'Efficiency Distribution</div>', unsafe_allow_html=True)
+            _pie_labels = ['Fast', 'Within', 'Slow']
+            _pie_values = [row.get('Fast Shots (%)', 0) or 0,
+                           row.get('Within Shots (%)', 0) or 0,
+                           row.get('Slow Shots (%)', 0) or 0]
+            _pie_colors = [RED, GREEN, YELLOW]
+            rpie = go.Figure(go.Pie(
+                labels=_pie_labels, values=_pie_values, hole=0.55,
+                marker=dict(colors=_pie_colors, line=dict(color='#0f1117', width=2)),
+                textinfo='percent', textfont=dict(color='#0f1117', size=13, weight="bold"),
+                hovertemplate="<b>%{label}</b><br>Percentage: %{value:.1f}%<extra></extra>",
+            ))
+            rpie.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                height=380, margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=True,
+                legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.02,
+                            font=dict(color="#e2e8f0", size=12)),
+                font=dict(color="#e2e8f0"),
+            )
+            st.plotly_chart(rpie, use_container_width=True, key=f"rc_pie_{keyns}_{scope_label}")
+
+        st.markdown('<div class="section-title">Detailed Benchmark &amp; Operations Breakdown</div>',
+                    unsafe_allow_html=True)
+        det_rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label)
+                    for n, g in scope_df.groupby("Tooling")]
+        if not det_rows:
+            st.info("No tooling-level detail available.")
+            return
+        det = pd.DataFrame(det_rows).sort_values("CT Weighted Average Efficiency").reset_index(drop=True)
+        det = det[[c for c in core.REPORT_CARD_TOOLING_COLS if c in det.columns]]
+
+        nonce = st.session_state.get(f'rc_nonce_{keyns}', 0)
+        sel_key = f"rc_table_{keyns}_{entity_name}_{nonce}"
+        event = st.dataframe(style_table(det, DETAIL_FMT), use_container_width=True, hide_index=True,
+                             on_select="rerun", selection_mode="single-row", key=sel_key)
+        if event and event.selection and event.selection.rows:
+            clicked_tool = det.iloc[event.selection.rows[0]]['Tooling ID']
+            if clicked_tool != tool_scope:
+                st.session_state[f'report_tool_{keyns}'] = clicked_tool
+                st.rerun()
+
     def render_dimension_view(view_df, dim, keyns):
         # --- Overview ---
         summ = core.fast_within_slow_summary(view_df, dim)
@@ -591,26 +715,18 @@ else:
                      use_container_width=True, hide_index=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        pick = st.selectbox(f"Drill into a {dim} (Tooling-level breakdown):",
+        pick = st.selectbox(f"Select a {dim.lower()} to view detail.",
                             ["(No Selection)"] + rank[dim].tolist(), key=f"pick_{keyns}")
+
+        _last_pick_key = f"_last_pick_{keyns}"
+        if st.session_state.get(_last_pick_key) != pick:
+            st.session_state[f"report_tool_{keyns}"] = None
+            st.session_state[_last_pick_key] = pick
+
         if pick != "(No Selection)":
             sub = view_df[view_df[dim] == pick]
-            rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label)
-                    for n, g in sub.groupby("Tooling")]
-            if rows:
-                det = pd.DataFrame(rows).sort_values("CT Weighted Average Efficiency")
-                det = det[[c for c in core.COMPREHENSIVE_TOOLING_COLS if c in det.columns]]
-                dc = st.columns([3, 1])
-                with dc[0]:
-                    det_view = search_box(det, f"det_{keyns}")
-                with dc[1]:
-                    st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
-                    download_csv(det_view, "Export CSV",
-                                 f"{dim}_{pick}_toolings.csv", f"det_{keyns}")
-                st.dataframe(style_table(det_view, DETAIL_FMT),
-                             use_container_width=True, hide_index=True)
-            else:
-                st.info("No tooling-level detail available.")
+            tool_scope = st.session_state.get(f"report_tool_{keyns}")
+            render_report_card(sub, dim, pick, keyns, tool_scope=tool_scope)
 
         # --- Trend (ACT-weighted deviation; full history, ignores the sidebar
         # Time Range so the trend is always shown over the full dataset) ---
