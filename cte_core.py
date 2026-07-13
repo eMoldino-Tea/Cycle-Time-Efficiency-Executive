@@ -294,12 +294,36 @@ def apply_financials(df, labor_rate, machine_rate):
 # 3. CORE METRIC HELPERS  (verbatim)
 # ==========================================================================
 def calc_weighted_eff(df_subset):
-    """(sum Expected_Hours / sum Used_Hours) * 100 -- the canonical CT efficiency."""
-    used = df_subset['Used_Hours'].sum()
-    expected = df_subset['Expected_Hours'].sum()
-    if used == 0:
+    """Headline CT efficiency per the AI-team calculation spec (PDF section 3.2 /
+    4.2, "Columns + Logic" col AG): a shot-share weighted average of the three
+    category efficiencies, NOT a plain hours ratio.
+
+        eff_fast   = sum(Expected_fast) / sum(Used_fast) * 100   (100 if no fast hours)
+        eff_slow   = sum(Expected_slow) / sum(Used_slow) * 100   (100 if no slow hours)
+        eff_within = 100 (by definition: within-range shots are at target)
+        weighted   = (eff_fast*pct_fast + eff_slow*pct_slow + 100*pct_within) / 100
+        clipped to [10, 200]
+
+    pct_* are each category's share of total shots. Returns NaN for an empty
+    slice (zero shots) so callers can render "N/A".
+    """
+    total_shots = df_subset['Total_Shots'].sum()
+    if total_shots == 0:
         return np.nan
-    return (expected / used) * 100
+    fast = df_subset[df_subset['Tolerance_Status'] == 'Fast']
+    slow = df_subset[df_subset['Tolerance_Status'] == 'Slow']
+
+    used_fast = fast['Used_Hours'].sum()
+    eff_fast = (fast['Expected_Hours'].sum() / used_fast * 100) if used_fast > 0 else 100.0
+    used_slow = slow['Used_Hours'].sum()
+    eff_slow = (slow['Expected_Hours'].sum() / used_slow * 100) if used_slow > 0 else 100.0
+
+    pct_fast = fast['Total_Shots'].sum() / total_shots * 100
+    pct_slow = slow['Total_Shots'].sum() / total_shots * 100
+    pct_within = 100.0 - pct_fast - pct_slow
+
+    weighted = (eff_fast * pct_fast + eff_slow * pct_slow + 100.0 * pct_within) / 100.0
+    return float(np.clip(weighted, 10.0, 200.0))
 
 
 def format_hm(hours_float):
@@ -373,7 +397,18 @@ def compute_comprehensive_row(name, group, group_col, period_label=""):
 
     ct_eff_fast = (exp_fast / act_fast * 100) if act_fast > 0 else np.nan
     ct_eff_slow = (exp_slow / act_slow * 100) if act_slow > 0 else np.nan
-    ct_eff_wt = (tot_exp_hrs / tot_act_hrs * 100) if tot_act_hrs > 0 else np.nan
+    # Weighted efficiency per the AI-team spec: shot-share weighted average of
+    # the three category efficiencies (empty bucket contributes 100), clipped
+    # to [10, 200]. The displayed per-category columns above keep NaN ("N/A")
+    # for empty buckets; the 100-default applies only inside this roll-up.
+    if tot_shots > 0:
+        _eff_fast_calc = ct_eff_fast if act_fast > 0 else 100.0
+        _eff_slow_calc = ct_eff_slow if act_slow > 0 else 100.0
+        ct_eff_wt = (_eff_fast_calc * fast_pct + _eff_slow_calc * slow_pct
+                     + 100.0 * neu_pct) / 100.0
+        ct_eff_wt = float(np.clip(ct_eff_wt, 10.0, 200.0))
+    else:
+        ct_eff_wt = np.nan
 
     perf_status = performance_status_from_eff(ct_eff_wt)
 
@@ -465,21 +500,17 @@ def generate_ranking_table_data(df, col):
 #    formula as calc_weighted_eff, so results are consistent and scalable)
 # ==========================================================================
 def entity_efficiency(df, dim):
-    """Per-entity weighted CT efficiency for a dimension (vectorized).
+    """Per-entity weighted CT efficiency for a dimension.
 
-    Identical to calc_weighted_eff applied per group:
-        (sum Expected_Hours / sum Used_Hours) * 100
-    Returns a DataFrame: [dim, Expected_Hours, Used_Hours, Efficiency_%, Performance Status].
+    Applies calc_weighted_eff (the spec's shot-share weighted formula) to each
+    entity's slice, so entity-level numbers match the overview metric exactly.
+    Returns a DataFrame: [dim, Efficiency_%, Performance Status].
     """
     if df.empty:
-        return pd.DataFrame(columns=[dim, 'Expected_Hours', 'Used_Hours', 'Efficiency_%', 'Performance Status'])
+        return pd.DataFrame(columns=[dim, 'Efficiency_%', 'Performance Status'])
     g = (df.groupby(dim)
-           .agg(Expected_Hours=('Expected_Hours', 'sum'),
-                Used_Hours=('Used_Hours', 'sum'))
-           .reset_index())
-    g['Efficiency_%'] = np.where(g['Used_Hours'] > 0,
-                                 (g['Expected_Hours'] / g['Used_Hours']) * 100,
-                                 np.nan)
+           .apply(calc_weighted_eff)
+           .reset_index(name='Efficiency_%'))
     g['Performance Status'] = g['Efficiency_%'].apply(performance_status_from_eff)
     return g
 
