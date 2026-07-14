@@ -362,7 +362,9 @@ def compute_comprehensive_row(name, group, group_col, period_label=""):
     parts_prod = tot_shots * 1.67
     act = np.average(group['ACT'], weights=group['Total_Shots']) if tot_shots > 0 else 0
     wact = np.average(group['Actual_CT'], weights=group['Total_Shots']) if tot_shots > 0 else 0
-    ct_diff = wact - act
+    # Spec convention ("Columns + Logic" col L, PDF section 2.1): ACT − WACT,
+    # so negative = running slower than approved.
+    ct_diff = act - wact
 
     tot_exp_hrs = group['Expected_Hours'].sum()
     tot_act_hrs = group['Used_Hours'].sum()
