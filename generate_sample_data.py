@@ -62,7 +62,21 @@ TOOLMAKERS = ['TM-A', 'TM-B', 'TM-C', 'TM-D']
 
 
 def generate(num_tools=80, weeks=52, end_date=None, seed=None):
-    """Generate a DataFrame matching cte_core.load_base_data()'s output schema."""
+    """Generate a DataFrame matching cte_core.load_base_data()'s output schema,
+    built the way the real backend data is structured (per the AI-team
+    calculation spec and the client reference workbook):
+
+      * Each tool has ONE fixed Approved Cycle Time (ACT) — a mold property —
+        and a fixed cavity count. The ACT never varies record to record.
+      * Each record is a batch of shots whose actual average CT varies around
+        the ACT (tool personality + weekly drift + noise), so Expected_Hours
+        is always ACT-based and Used_Hours is always actual-CT-based.
+      * Within-band records keep their TRUE efficiency (not collapsed to
+        100%), so the app's configurable tolerance band genuinely
+        reclassifies records when the user moves the slider.
+      * Classification columns are written at the default ±5% band; the app
+        recomputes them for the active tolerance via core.apply_tolerance.
+    """
     rng = np.random.default_rng(seed)
     if end_date is None:
         end_date = datetime.today()
@@ -78,50 +92,46 @@ def generate(num_tools=80, weeks=52, end_date=None, seed=None):
         plant = rng.choice(PLANTS)
         oem = rng.choice(OEM_DIVISIONS)
         toolmaker = rng.choice(TOOLMAKERS)
-        cavities = int(rng.choice([1, 2, 4]))  # fixed per tool (mold property)
-        base_eff = rng.uniform(75, 125)      # this tool's typical CT efficiency %
-        drift = rng.uniform(-0.3, 0.3)       # slow trend per week
+        act = round(float(rng.uniform(5.0, 60.0)), 2)   # fixed Approved CT (seconds)
+        cavities = int(rng.choice([1, 2, 4]))            # fixed per tool (mold property)
+        base_eff = rng.uniform(80, 120)      # this tool's typical CT efficiency %
+        drift = rng.uniform(-0.25, 0.25)     # slow trend per week
 
         for w, wk in enumerate(week_starts):
             for _ in range(rng.integers(1, 4)):
-                eff = base_eff + drift * w + rng.normal(0, 3.0)
-                used = float(rng.uniform(0.5, 5.0))
-                volume = int(rng.integers(200, 5000))
+                eff = max(30.0, base_eff + drift * w + rng.normal(0, 4.0))
+                actual_ct = act * 100.0 / eff          # seconds per shot, this batch
+                shots = int(rng.integers(200, 5000))
+                expected = act * shots / 3600.0        # hours at the approved CT
+                used = actual_ct * shots / 3600.0      # hours actually consumed
                 date = wk + timedelta(days=int(rng.integers(0, 7)))
 
-                if eff > 105:
-                    status, expected = 'Fast', used * eff / 100.0
-                    gain, loss = expected - used, 0.0
-                    sg, sl = volume, 0
-                    bfg, bfl = gain * BASELINE_RATE, 0.0
-                elif eff < 95:
-                    status, expected = 'Slow', used * eff / 100.0
-                    gain, loss = 0.0, used - expected
-                    sg, sl = 0, volume
-                    bfg, bfl = 0.0, loss * BASELINE_RATE
+                # Default ±5% classification; the app reclassifies for the
+                # user's tolerance setting at load time.
+                if eff > 105.0:
+                    status, gain, loss = 'Fast', expected - used, 0.0
+                    sg, sl = shots, 0
+                elif eff < 95.0:
+                    status, gain, loss = 'Slow', 0.0, used - expected
+                    sg, sl = 0, shots
                 else:
-                    status, expected = 'Within', used
-                    gain = loss = 0.0
+                    status, gain, loss = 'Within', 0.0, 0.0
                     sg = sl = 0
-                    bfg = bfl = 0.0
 
                 records.append({
                     'Tolerance_Status': status, 'Gain_Hours': gain, 'Loss_Hours': loss,
                     'Shots_Gained': sg, 'Shots_Lost': sl, 'Used_Hours': used,
-                    'Expected_Hours': expected, 'Base_Fin_Gain': bfg, 'Base_Fin_Loss': bfl,
+                    'Expected_Hours': expected,
+                    'Base_Fin_Gain': gain * BASELINE_RATE,
+                    'Base_Fin_Loss': loss * BASELINE_RATE,
                     'Supplier': sup, 'Tooling Type': ttype, 'Product': product,
                     'Part': part, 'Tooling': tool_id, 'Date': date,
                     'OEM Business Division': oem, 'Toolmaker': toolmaker,
-                    'Plant': plant, 'Cavities': cavities, '_vol': volume,
+                    'Plant': plant, 'Cavities': cavities,
+                    'Total_Shots': shots, 'ACT': act, 'Actual_CT': actual_ct,
                 })
 
     data = pd.DataFrame(records)
-    data['Total_Shots'] = data['Shots_Gained'] + data['Shots_Lost']
-    within_mask = data['Tolerance_Status'] == 'Within'
-    data.loc[within_mask, 'Total_Shots'] = data.loc[within_mask, '_vol']
-    data.drop(columns='_vol', inplace=True)
-    data['ACT'] = (data['Expected_Hours'] * 3600) / data['Total_Shots']
-    data['Actual_CT'] = (data['Used_Hours'] * 3600) / data['Total_Shots']
     data['Efficiency_%'] = np.where(data['Used_Hours'] > 0,
                                      (data['Expected_Hours'] / data['Used_Hours']) * 100, 0)
     data['Part Name'] = data['Part'].map(PART_NAMES).fillna('Component')
