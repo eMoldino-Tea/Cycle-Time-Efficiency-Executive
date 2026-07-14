@@ -304,6 +304,7 @@ RANK_FMT = {
     "Overall Efficiency %": "{:.2f}%", "Total Toolings": "{:,.0f}", "Rank": "{:.0f}",
 }
 DETAIL_FMT = {
+    "Hourly Rate": "${:,.0f}",
     "Total Shots": "{:,.0f}", "Parts Produced": "{:,.0f}", "ACT": "{:.2f}",
     "Actual Average CT (WACT)": "{:.2f}", "CT Difference": "{:.2f}",
     "Total Expected Hours": "{:.2f}", "Total Actual Hours": "{:.2f}",
