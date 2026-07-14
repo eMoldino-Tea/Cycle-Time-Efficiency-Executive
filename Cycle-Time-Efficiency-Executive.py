@@ -319,6 +319,29 @@ DETAIL_FMT = {
 }
 
 
+# Column-header hover tooltips for every table column that can legitimately
+# go negative, explaining what a negative value means. Applied to each
+# st.dataframe via neg_help(df) so only columns present in that table get one.
+NEG_COL_HELP = {
+    "CT Difference": st.column_config.NumberColumn(
+        help="ACT − Actual Average CT (seconds). "
+             "Negative = running slower than approved."),
+    "Net Hours": st.column_config.NumberColumn(
+        help="Hours Gained − Hours Lost. Negative = more machine time lost "
+             "to slow shots than gained from fast ones."),
+    "Net Shots": st.column_config.NumberColumn(
+        help="Shots Gained − Shots Lost. Negative = more shots ran slow than fast."),
+    "Net Financial": st.column_config.NumberColumn(
+        help="Financial Gain − Financial Loss. "
+             "Negative = net cost overrun for the period."),
+}
+
+
+def neg_help(df):
+    """Subset of NEG_COL_HELP for the columns actually present in df."""
+    return {k: v for k, v in NEG_COL_HELP.items() if k in df.columns}
+
+
 def _status_css(v):
     return {"Fast": "background-color:#7f1d1d;color:#fff;",
             "Slow": "background-color:#854d0e;color:#fff;",
@@ -538,7 +561,9 @@ else:
                   f"{ct_eff_wt:.1f}%" if pd.notna(ct_eff_wt) else "N/A")
         k2.metric("Total Hours Gained (Fast)", core.format_hm(row['Hours Gained']))
         k3.metric("Total Hours Lost (Slow)", core.format_hm(row['Hours Lost']))
-        k4.metric("Net Financial", f"${row['Net Financial']:,.0f}")
+        k4.metric("Net Financial", f"${row['Net Financial']:,.0f}",
+                  help="Financial Gain − Financial Loss. "
+                       "Negative = net cost overrun for the period.")
 
         st.markdown("<hr style='border-color:#2d3748;margin:1.5rem 0;'>", unsafe_allow_html=True)
 
@@ -605,11 +630,7 @@ else:
         sel_key = f"rc_table_{keyns}_{entity_name}_{nonce}"
         event = st.dataframe(style_table(det, DETAIL_FMT), use_container_width=True, hide_index=True,
                              on_select="rerun", selection_mode="single-row", key=sel_key,
-                             column_config={
-                                 "CT Difference": st.column_config.NumberColumn(
-                                     help="ACT − Actual Average CT (seconds). "
-                                          "Negative = running slower than approved."),
-                             })
+                             column_config=neg_help(det))
         if event and event.selection and event.selection.rows:
             sel_idx = event.selection.rows[0]
             if sel_idx < len(det):
@@ -739,7 +760,8 @@ else:
             st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
             download_csv(rank_view, "Export CSV", f"{dim}_summary.csv", f"rank_{keyns}")
         st.dataframe(style_table(rank_view, RANK_FMT),
-                     use_container_width=True, hide_index=True)
+                     use_container_width=True, hide_index=True,
+                     column_config=neg_help(rank_view))
 
         st.markdown("<br>", unsafe_allow_html=True)
         pick = st.selectbox(f"Select a {dim.lower()} to view detail.",
@@ -819,7 +841,17 @@ else:
             sty = display_t.style.format(
                 {f'{dim} ACT-Weighted Deviation (sec)': '{:.2f}'}
             ).map(_trend_change_css, subset=['Change vs Previous Period'])
-            st.dataframe(sty, use_container_width=True, hide_index=True)
+            st.dataframe(sty, use_container_width=True, hide_index=True,
+                         column_config={
+                             f'{dim} ACT-Weighted Deviation (sec)': st.column_config.NumberColumn(
+                                 help="Average seconds per shot vs the approved cycle "
+                                      "time (ACT-weighted). Negative = running faster "
+                                      "than approved; positive = slower."),
+                             'Change vs Previous Period': st.column_config.TextColumn(
+                                 help="Change in the deviation vs the prior period. "
+                                      "↓ (green) = deviation shrank, moving toward the "
+                                      "approved cycle time; ↑ (red) = it grew."),
+                         })
         else:
             st.info(f"No trend data available for {dim}.")
 
