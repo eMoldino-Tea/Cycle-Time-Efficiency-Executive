@@ -604,7 +604,12 @@ else:
         nonce = st.session_state.get(f'rc_nonce_{keyns}', 0)
         sel_key = f"rc_table_{keyns}_{entity_name}_{nonce}"
         event = st.dataframe(style_table(det, DETAIL_FMT), use_container_width=True, hide_index=True,
-                             on_select="rerun", selection_mode="single-row", key=sel_key)
+                             on_select="rerun", selection_mode="single-row", key=sel_key,
+                             column_config={
+                                 "CT Difference": st.column_config.NumberColumn(
+                                     help="ACT − Actual Average CT (seconds). "
+                                          "Negative = running slower than approved."),
+                             })
         if event and event.selection and event.selection.rows:
             sel_idx = event.selection.rows[0]
             if sel_idx < len(det):
