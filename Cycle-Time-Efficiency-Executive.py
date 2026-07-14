@@ -16,10 +16,11 @@ Two-tab structure:
                                (Overview / Detailed Table / Trend) per
                                Supplier, Tooling Type, and Part.
 
-Performance is classified into exactly three tiers (no "At Risk" concept):
-  Fast   : CT Efficiency < 95%
-  Within : CT Efficiency 95%-105%
-  Slow   : CT Efficiency > 105%
+Performance is classified into exactly three tiers (no "At Risk" concept),
+driven by a user-configurable tolerance band (sidebar slider, default ±5%):
+  Fast   : CT Efficiency > 100 + tolerance
+  Within : 100 - tolerance ... 100 + tolerance
+  Slow   : CT Efficiency < 100 - tolerance
 """
 
 import numpy as np
@@ -147,7 +148,7 @@ STATUS_COLORS = {"Within": GREEN, "Slow": YELLOW, "Fast": RED}
 # ==========================================================================
 # DATA + SIDEBAR CONTROLS
 # ==========================================================================
-base_df = core.load_base_data(version=10)
+base_df = core.load_base_data(version=11)
 
 # Optional sample-data override: if sample_data/ has a CSV, use it instead of
 # the built-in synthetic generator above. No-op (falls back to the line
@@ -157,8 +158,22 @@ if _sample is not None:
     base_df, _sample_filename = _sample
     st.sidebar.success(f"Using sample data: {_sample_filename}")
 
+st.sidebar.markdown("### Classification Tolerance")
+tolerance_pct = st.sidebar.slider(
+    "Tolerance band (± % around ACT)",
+    min_value=1.0, max_value=10.0, value=core.DEFAULT_TOLERANCE_PCT, step=0.5,
+    help="Records within this band of the approved cycle time count as Within. "
+         "Also sets the Fast/Slow performance thresholds at 100 ± tolerance.",
+)
+
+# Reclassify all records against the selected band (recomputes Tolerance_Status,
+# gain/loss hours and shots, and baseline financials). Must run before
+# apply_financials, which scales the recomputed baseline dollars.
+base_df = core.apply_tolerance(base_df, tolerance_pct)
+
 min_date, max_date = base_df['Date'].min(), base_df['Date'].max()
 
+st.sidebar.markdown("---")
 st.sidebar.markdown("### Time Range")
 time_range = st.sidebar.radio(
     "Select range",
@@ -364,11 +379,14 @@ def _bucket_label(bucket_ts, freq):
 # HEADER
 # ==========================================================================
 st.markdown('<div class="dash-header">Cycle Time Efficiency — Executive Dashboard</div>', unsafe_allow_html=True)
+_fast_thr = 100 + tolerance_pct
+_slow_thr = 100 - tolerance_pct
 st.markdown(
     f'<div class="dash-sub">'
-    f'Fast (Gain): &gt;105% CT Efficiency &nbsp;|&nbsp; '
-    f'Within (Neutral): 95%–105% CT Efficiency &nbsp;|&nbsp; '
-    f'Slow (Loss): &lt;95% CT Efficiency'
+    f'Fast (Gain): &gt;{_fast_thr:g}% CT Efficiency &nbsp;|&nbsp; '
+    f'Within (Neutral): {_slow_thr:g}%–{_fast_thr:g}% CT Efficiency &nbsp;|&nbsp; '
+    f'Slow (Loss): &lt;{_slow_thr:g}% CT Efficiency &nbsp;|&nbsp; '
+    f'Tolerance: ±{tolerance_pct:g}%'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -440,9 +458,9 @@ if st.session_state['active_top_tab'] == "Executive Summary":
     cols = st.columns(3, gap="large")
     for col, (title, dim) in zip(cols, dims):
         with col:
-            summary = core.fast_within_slow_summary(current_df, dim)
-            trend_curr_summ = core.fast_within_slow_summary(_trend_curr, dim)
-            trend_prev_summ = core.fast_within_slow_summary(_trend_prev, dim)
+            summary = core.fast_within_slow_summary(current_df, dim, tolerance_pct)
+            trend_curr_summ = core.fast_within_slow_summary(_trend_curr, dim, tolerance_pct)
+            trend_prev_summ = core.fast_within_slow_summary(_trend_prev, dim, tolerance_pct)
             dimension_card(
                 title, summary,
                 fast_trend=(trend_curr_summ['fast'], trend_prev_summ['fast']),
@@ -498,7 +516,8 @@ else:
             return
 
         row = core.compute_comprehensive_row(
-            scope_label, scope_df, "Tooling ID" if tool_scope else dim, period_label)
+            scope_label, scope_df, "Tooling ID" if tool_scope else dim, period_label,
+            tolerance_pct=tolerance_pct)
 
         st.markdown("<hr style='border-color:#2d3748;margin:1.5rem 0 1rem 0;'>", unsafe_allow_html=True)
 
@@ -573,7 +592,8 @@ else:
 
         st.markdown('<div class="section-title">Detailed Benchmark &amp; Operations Breakdown</div>',
                     unsafe_allow_html=True)
-        det_rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label)
+        det_rows = [core.compute_comprehensive_row(n, g, "Tooling ID", period_label,
+                                                   tolerance_pct=tolerance_pct)
                     for n, g in scope_df.groupby("Tooling")]
         if not det_rows:
             st.info("No tooling-level detail available.")
@@ -595,8 +615,8 @@ else:
 
     def render_dimension_view(view_df, dim, keyns):
         # --- Overview ---
-        summ = core.fast_within_slow_summary(view_df, dim)
-        eff = core.entity_efficiency(view_df, dim).sort_values("Efficiency_%")
+        summ = core.fast_within_slow_summary(view_df, dim, tolerance_pct)
+        eff = core.entity_efficiency(view_df, dim, tolerance_pct).sort_values("Efficiency_%")
 
         # First row: Total {dim}s / Overall CT Efficiency
         m1, m2 = st.columns(2)
@@ -701,7 +721,7 @@ else:
 
         # --- Detailed Table (moved directly below the bar graph) ---
         st.markdown('<div class="section-title">Detailed Table</div>', unsafe_allow_html=True)
-        rank = core.generate_ranking_table_data(view_df, dim)
+        rank = core.generate_ranking_table_data(view_df, dim, tolerance_pct)
         if rank.empty:
             st.info("No data available.")
             return

@@ -24,11 +24,14 @@ from datetime import datetime, timedelta
 # ==========================================================================
 # THRESHOLDS
 # ==========================================================================
-# Preserved 3-tier "Performance Status" thresholds from the original app.
-# Used for the detailed / ranking tables and comparison charts. UNCHANGED.
-FAST_THRESHOLD = 105.0   # Efficiency % > 105  -> "Fast"
-SLOW_THRESHOLD = 95.0    # Efficiency % < 95   -> "Slow"
-#                          otherwise            -> "Within"
+# 3-tier classification is driven by a single tolerance band (±% around 100%
+# efficiency / the ACT), per the AI-team spec's 5% default. The app exposes a
+# sidebar slider; every classification helper takes tolerance_pct explicitly
+# so the whole app can never disagree with itself about what "Within" means:
+#   Fast   : efficiency > 100 + tolerance
+#   Within : 100 - tolerance ... 100 + tolerance
+#   Slow   : efficiency < 100 - tolerance
+DEFAULT_TOLERANCE_PCT = 5.0
 
 # Original financial baseline (labor 40 + machine 180). rate_scalar = combined/220.
 BASELINE_RATE = 220.0
@@ -176,6 +179,7 @@ def load_base_data(version: int = 3):
             plant = np.random.choice(plant_pools[t])
             oem = np.random.choice(oem_pool)
             toolmaker = np.random.choice(['TM-A', 'TM-B', 'TM-C', 'TM-D'])
+            cavities = int(np.random.choice([1, 2, 4]))  # fixed per tool (mold property)
             tool_off = np.random.uniform(-2, 2)
             dyn_t = type_dyn.get(ttype, None)
             dyn_p = part_dyn.get(part, None)
@@ -233,7 +237,7 @@ def load_base_data(version: int = 3):
                         'Supplier': sup, 'Tooling Type': ttype, 'Product': product,
                         'Part': part, 'Tooling': tool_id, 'Date': date,
                         'OEM Business Division': oem, 'Toolmaker': toolmaker,
-                        'Plant': plant, '_vol': volume,
+                        'Plant': plant, 'Cavities': cavities, '_vol': volume,
                     })
 
     data = pd.DataFrame(records)
@@ -337,29 +341,62 @@ def format_hm(hours_float):
     return f"{sign}{h}H {m}M"
 
 
-def performance_status_from_eff(ct_eff_wt):
+def performance_status_from_eff(ct_eff_wt, tolerance_pct=DEFAULT_TOLERANCE_PCT):
     """3-tier mapping used by detailed & ranking tables.
 
-    Gain (Overall Efficiency > 105%)          -> Fast
-    Neutral (95% <= Overall Efficiency <= 105%) -> Within
-    Loss (Overall Efficiency < 95%)            -> Slow
+    Gain    (efficiency > 100 + tolerance)  -> Fast
+    Neutral (within the tolerance band)     -> Within
+    Loss    (efficiency < 100 - tolerance)  -> Slow
+
+    At the default 5% tolerance this is the familiar >105 / 95-105 / <95.
     """
     if pd.isna(ct_eff_wt):
         return 'Within'
-    elif ct_eff_wt > FAST_THRESHOLD:
-        return 'Fast'   # Gain: CTE > 105%
-    elif ct_eff_wt < SLOW_THRESHOLD:
-        return 'Slow'   # Loss: CTE < 95%
+    elif ct_eff_wt > 100.0 + tolerance_pct:
+        return 'Fast'
+    elif ct_eff_wt < 100.0 - tolerance_pct:
+        return 'Slow'
     else:
-        return 'Within'  # Neutral: 95%-105% inclusive
+        return 'Within'
+
+
+def apply_tolerance(df, tolerance_pct=DEFAULT_TOLERANCE_PCT):
+    """Reclassify every record against a ±tolerance_pct band and recompute the
+    classification-dependent columns: Tolerance_Status, Gain/Loss hours,
+    Shots Gained/Lost, and the baseline financials derived from them.
+
+    Measurement columns (Expected/Used hours, ACT, Actual_CT, Total_Shots)
+    are facts independent of the band and are left untouched. Run this right
+    after loading data, before apply_financials.
+    """
+    out = df.copy()
+    eff = np.where(out['Used_Hours'] > 0,
+                   (out['Expected_Hours'] / out['Used_Hours']) * 100, 100.0)
+    fast = eff > 100.0 + tolerance_pct
+    slow = eff < 100.0 - tolerance_pct
+    out['Tolerance_Status'] = np.select([fast, slow], ['Fast', 'Slow'], default='Within')
+    out['Gain_Hours'] = np.where(fast, out['Expected_Hours'] - out['Used_Hours'], 0.0)
+    out['Loss_Hours'] = np.where(slow, out['Used_Hours'] - out['Expected_Hours'], 0.0)
+    out['Shots_Gained'] = np.where(fast, out['Total_Shots'], 0)
+    out['Shots_Lost'] = np.where(slow, out['Total_Shots'], 0)
+    out['Base_Fin_Gain'] = out['Gain_Hours'] * BASELINE_RATE
+    out['Base_Fin_Loss'] = out['Loss_Hours'] * BASELINE_RATE
+    return out
 
 
 # ==========================================================================
 # 4. COMPREHENSIVE ROW  (verbatim math; period label is now a parameter)
 # ==========================================================================
-def compute_comprehensive_row(name, group, group_col, period_label=""):
+def compute_comprehensive_row(name, group, group_col, period_label="",
+                              tolerance_pct=DEFAULT_TOLERANCE_PCT):
     tot_shots = group['Total_Shots'].sum()
-    parts_prod = tot_shots * 1.67
+    # Parts Produced = shots x mold cavities (spec, "Columns + Logic" col I).
+    # Row-wise so multi-tool groups honor each tool's own cavity count;
+    # data without a Cavities column defaults to 1 cavity per shot.
+    if 'Cavities' in group.columns:
+        parts_prod = (group['Total_Shots'] * group['Cavities'].fillna(1)).sum()
+    else:
+        parts_prod = tot_shots
     act = np.average(group['ACT'], weights=group['Total_Shots']) if tot_shots > 0 else 0
     wact = np.average(group['Actual_CT'], weights=group['Total_Shots']) if tot_shots > 0 else 0
     # Spec convention ("Columns + Logic" col L, PDF section 2.1): ACT − WACT,
@@ -412,7 +449,7 @@ def compute_comprehensive_row(name, group, group_col, period_label=""):
     else:
         ct_eff_wt = np.nan
 
-    perf_status = performance_status_from_eff(ct_eff_wt)
+    perf_status = performance_status_from_eff(ct_eff_wt, tolerance_pct)
 
     row = {
         group_col: name,
@@ -462,7 +499,7 @@ def compute_comprehensive_row(name, group, group_col, period_label=""):
 # ==========================================================================
 # 5. RANKING TABLE  (verbatim)
 # ==========================================================================
-def generate_ranking_table_data(df, col):
+def generate_ranking_table_data(df, col, tolerance_pct=DEFAULT_TOLERANCE_PCT):
     def _agg_func(x):
         res = {
             'Total Toolings': x['Tooling'].nunique(),
@@ -493,7 +530,8 @@ def generate_ranking_table_data(df, col):
         col_order.insert(part_idx + 1, 'Product')
         agg = agg[col_order]
 
-    agg['Performance Status'] = agg['Overall Efficiency %'].apply(performance_status_from_eff)
+    agg['Performance Status'] = agg['Overall Efficiency %'].apply(
+        lambda e: performance_status_from_eff(e, tolerance_pct))
     return agg
 
 
@@ -501,7 +539,7 @@ def generate_ranking_table_data(df, col):
 # 6. EXECUTIVE AGGREGATIONS  (NEW -- vectorized, uses the SAME efficiency
 #    formula as calc_weighted_eff, so results are consistent and scalable)
 # ==========================================================================
-def entity_efficiency(df, dim):
+def entity_efficiency(df, dim, tolerance_pct=DEFAULT_TOLERANCE_PCT):
     """Per-entity weighted CT efficiency for a dimension.
 
     Applies calc_weighted_eff (the spec's shot-share weighted formula) to each
@@ -513,17 +551,18 @@ def entity_efficiency(df, dim):
     g = (df.groupby(dim)
            .apply(calc_weighted_eff)
            .reset_index(name='Efficiency_%'))
-    g['Performance Status'] = g['Efficiency_%'].apply(performance_status_from_eff)
+    g['Performance Status'] = g['Efficiency_%'].apply(
+        lambda e: performance_status_from_eff(e, tolerance_pct))
     return g
 
 
-def fast_within_slow_summary(df, dim):
+def fast_within_slow_summary(df, dim, tolerance_pct=DEFAULT_TOLERANCE_PCT):
     """Executive summary numbers for one dimension on a given dataframe slice.
 
     Returns dict: total, fast, within, slow, pct_fast, pct_within, pct_slow.
     Percentages are None when total == 0.
     """
-    g = entity_efficiency(df, dim)
+    g = entity_efficiency(df, dim, tolerance_pct)
     total = int(g[dim].nunique()) if not g.empty else 0
     counts = g['Performance Status'].value_counts() if not g.empty else pd.Series(dtype=int)
     fast = int(counts.get('Fast', 0))

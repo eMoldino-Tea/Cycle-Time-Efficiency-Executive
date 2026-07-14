@@ -78,6 +78,7 @@ def generate(num_tools=80, weeks=52, end_date=None, seed=None):
         plant = rng.choice(PLANTS)
         oem = rng.choice(OEM_DIVISIONS)
         toolmaker = rng.choice(TOOLMAKERS)
+        cavities = int(rng.choice([1, 2, 4]))  # fixed per tool (mold property)
         base_eff = rng.uniform(75, 125)      # this tool's typical CT efficiency %
         drift = rng.uniform(-0.3, 0.3)       # slow trend per week
 
@@ -89,15 +90,15 @@ def generate(num_tools=80, weeks=52, end_date=None, seed=None):
                 date = wk + timedelta(days=int(rng.integers(0, 7)))
 
                 if eff > 105:
-                    status, expected = 'Slow', used * eff / 100.0
-                    gain, loss = 0.0, used - expected
-                    sg, sl = 0, volume
-                    bfg, bfl = 0.0, loss * BASELINE_RATE
-                elif eff < 95:
                     status, expected = 'Fast', used * eff / 100.0
                     gain, loss = expected - used, 0.0
                     sg, sl = volume, 0
                     bfg, bfl = gain * BASELINE_RATE, 0.0
+                elif eff < 95:
+                    status, expected = 'Slow', used * eff / 100.0
+                    gain, loss = 0.0, used - expected
+                    sg, sl = 0, volume
+                    bfg, bfl = 0.0, loss * BASELINE_RATE
                 else:
                     status, expected = 'Within', used
                     gain = loss = 0.0
@@ -111,7 +112,7 @@ def generate(num_tools=80, weeks=52, end_date=None, seed=None):
                     'Supplier': sup, 'Tooling Type': ttype, 'Product': product,
                     'Part': part, 'Tooling': tool_id, 'Date': date,
                     'OEM Business Division': oem, 'Toolmaker': toolmaker,
-                    'Plant': plant, '_vol': volume,
+                    'Plant': plant, 'Cavities': cavities, '_vol': volume,
                 })
 
     data = pd.DataFrame(records)
