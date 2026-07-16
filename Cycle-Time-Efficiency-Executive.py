@@ -186,7 +186,9 @@ if time_range == "Last 7 Days":
 elif time_range == "Last 30 Days":
     start_date, end_date = max_date - timedelta(days=30), max_date
 elif time_range == "Last 90 Days":
-    start_date, end_date = min_date - timedelta(days=1), max_date + timedelta(days=1)
+    # True 90-day window (was min->max, i.e. "all data" -- indistinguishable
+    # while demo data was short, but wrong once a full year is loaded).
+    start_date, end_date = max_date - timedelta(days=90), max_date
 else:
     c1, c2 = st.sidebar.columns(2)
     s_in = c1.date_input("Start", min_date.date(), max_value=max_date.date())
